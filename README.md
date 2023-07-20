@@ -42,7 +42,7 @@ Use "./build/gsword -d DataGraph -q QueryGraph -m method -s NumberOfQueryVetice"
 | COAL   | 4    | AL with inheritance          |
 | RSAL   | 5    | AL with Warp streaming       |
 | HYBWJ  | 6    | WJ with CPU-GPU cooperate    |
-| HYBAL  | 7    | ALLEY with CPU-GPU cooperate |
+| HYBAL  | 7    | AL with CPU-GPU cooperate |
 
 We also provide mpre advanced arguments for experienced users. 
 -t NumberOfSamples,  -c NumberOfThreads, -e MatchOrder
@@ -58,16 +58,18 @@ We also provide mpre advanced arguments for experienced users.
 | RI         | 6    | the ordering method of RI       |
 | VF2        | 7    | the ordering method of VF2++    |
 
-For datasets that RW estimators that hard to estimate, we provide GPU-CPU cooperate executing mode. Here is an example of enabling this mode.
-
 Examples
 ```
 $ ./gsword -d datagraph.graph -q query.graph -m 1 -s 16
 or
 ./gsword -d datagraph.graph -q query.graph -m 1 -s 16 -t 128000 -c 5120 -e 6
 ```
-
-For GPU-CPU cooperate methods, you can provide more arguments: -i "MaxNumberOfSamplesForEnumeration" -h "NumberOfBatches". We provide a toy datagraph with 3112 vertices and 12519 edges in the build/ directory.  Please run the shell in example.sh and have a try.
+GPU-CPU cooperate in GSWORD
+--------
+![pipeline-crop](https://github.com/Gibyeng/gsword/assets/19706360/8a96fc3d-0301-476e-a231-0fe89663ea32)
+We also support GPU-CPU cooperate executing mode for cases where existing RW estimators have severe underestimate issues.
+When enable GPU-CPU cooperate methods, you can provide more arguments: -i "MaxNumberOfSamplesForEnumeration" -h "NumberOfBatches". 
+We provide a toy datagraph with 3112 vertices and 12519 edges in the build/ directory. Please run the shell in example.sh and have a try.
 
 Input Format for GSWORD
 --------
