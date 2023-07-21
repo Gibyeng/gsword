@@ -64,9 +64,12 @@ $ ./gsword -d datagraph.graph -q query.graph -m 1 -s 16
 or
 ./gsword -d datagraph.graph -q query.graph -m 1 -s 16 -t 128000 -c 5120 -e 6
 ```
+
 GPU-CPU cooperate in GSWORD
 --------
-<!-- ![pipeline-crop](https://github.com/Gibyeng/gsword/assets/19706360/8a96fc3d-0301-476e-a231-0fe89663ea32) -->
+
+![pipeline-crop](https://github.com/Gibyeng/gsword/assets/19706360/8a96fc3d-0301-476e-a231-0fe89663ea32)
+
 We also support GPU-CPU cooperate executing mode for cases where existing RW estimators have severe underestimate issues.
 When enable GPU-CPU cooperate methods, you can provide more arguments: -i "MaxNumberOfSamplesForEnumeration" -h "NumberOfBatches". 
 We provide a toy datagraph with 3112 vertices and 12519 edges in the build/ directory. Please run the shell in example.sh and have a try.
