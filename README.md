@@ -33,16 +33,16 @@ Running Code in GSWORD
 Running code is done within the build/ directory. 
 Use "./build/gsword -d DataGraph -q QueryGraph -m method -s NumberOfQueryVetice" to estimate the count of QueryGraph in DataGraph.
 
-| Method | code | Description                  |
-| ------ | ---- | ---------------------------- |
-| LFTJ   | 0    | Exact count by enumeration   |
-| WJ     | 1    | GPU WJ                       |
-| AL     | 2    | GPU ALLEY                    |
-| COWJ   | 3    | WJ with inheritance          |
-| COAL   | 4    | AL with inheritance          |
-| RSAL   | 5    | AL with Warp streaming       |
-| HYBWJ  | 6    | WJ with CPU-GPU cooperate    |
-| HYBAL  | 7    | AL with CPU-GPU cooperate |
+| Method | code | Description                |
+| ------ | ---- | -------------------------- |
+| LFTJ   | 0    | Exact count by enumeration |
+| WJ     | 1    | GPU WJ                     |
+| AL     | 2    | GPU ALLEY                  |
+| COWJ   | 3    | WJ with inheritance        |
+| COAL   | 4    | AL with inheritance        |
+| RSAL   | 5    | AL with Warp streaming     |
+| HYBWJ  | 6    | WJ with CPU-GPU cooperate  |
+| HYBAL  | 7    | AL with CPU-GPU cooperate  |
 
 We also provide mpre advanced arguments for experienced users. 
 -t NumberOfSamples,  -c NumberOfThreads, -e MatchOrder
@@ -66,7 +66,7 @@ or
 ```
 GPU-CPU cooperate in GSWORD
 --------
-![pipeline-crop](https://github.com/Gibyeng/gsword/assets/19706360/8a96fc3d-0301-476e-a231-0fe89663ea32)
+<!-- ![pipeline-crop](https://github.com/Gibyeng/gsword/assets/19706360/8a96fc3d-0301-476e-a231-0fe89663ea32) -->
 We also support GPU-CPU cooperate executing mode for cases where existing RW estimators have severe underestimate issues.
 When enable GPU-CPU cooperate methods, you can provide more arguments: -i "MaxNumberOfSamplesForEnumeration" -h "NumberOfBatches". 
 We provide a toy datagraph with 3112 vertices and 12519 edges in the build/ directory. Please run the shell in example.sh and have a try.

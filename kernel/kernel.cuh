@@ -1,7 +1,7 @@
 #pragma once
 #include <mma.h>
-#include "./configuration/types.h"
-#include "./cub/cub/cub.cuh"
+#include "../configuration/types.h"
+#include "../cub/cub/cub.cuh"
 #include <curand.h>
 #include <curand_kernel.h>
 using namespace nvcuda;
@@ -8068,31 +8068,26 @@ __global__  void ggecorsal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_i
 }
 
 
+// this method use inheritance optimation and collect number of valid samples.
 template < ui threadsPerBlock>
-__global__  void ggecoal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_index,ui* d_edges ,ui* d_order,ui* d_candidates,ui* d_candidates_count, ui* d_bn ,ui* d_bn_count, ui* d_idx_count,  ui* d_idx, ui* d_range, ui* d_embedding, ui* d_idx_embedding, ui* d_temp, ui* d_intersection,ui query_vertices_num ,ui max_candidates_num,ui threadnum,ui sl, ui el, ui fixednum, double* d_score,ui* d_score_count, ui taskPerBlock){
-
+__global__  void ggecoal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_index,ui* d_edges ,ui* d_order,ui* d_candidates,ui* d_candidates_count, ui* d_bn ,ui* d_bn_count, ui* d_idx_count,  ui* d_idx, ui* d_range, ui* d_embedding, ui* d_idx_embedding, ui* d_temp, ui* d_intersection,ui query_vertices_num ,ui max_candidates_num,ui threadnum,ui sl, ui el, ui fixednum, double* d_score,ui* d_score_count, ui taskPerBlock, ui* d_path_count){
+	// s is the number of samples collected by inherit optimation across each block
 	__shared__ unsigned int s;
-	__shared__ unsigned int d;
 	double thread_score = 0.0;
+	s = 0;
 	ui tid = blockIdx.x * blockDim.x + threadIdx.x;
 	ui offset_qn = tid* query_vertices_num;
 	ui offset_cn = tid* max_candidates_num;
-	s = 0;
-//	d = 0;
 	//
-
-	while(s < taskPerBlock){
+	for( int it = 0; it < taskPerBlock/threadsPerBlock; ++it  ){
 		// reset to 1st layer
 		ui depth = sl;
 		ui u = root;
 		ui divergence = 1;
 
 		if (tid < threadnum){
-			atomicAdd (&s, 1);
-//			atomicAdd (&d, 1);
-			if(s >= taskPerBlock) {
-				break;
-			}
+//			atomicAdd (&s, 1);
+
 			// each thread gets a v.
 			ui v =0;
 			ui valid_idx = PickOneRandomCandidate ( d_candidates, d_candidates_count[u], max_candidates_num, u, tid, v);
@@ -8137,7 +8132,8 @@ __global__  void ggecoal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_ind
 				}
 
 				if_end = if_interrupt || (depth ==  el) ;
-
+			
+				
 				d_embedding[offset_qn + u] = v;
 				d_idx_embedding[offset_qn + u] = valid_idx;
 
@@ -8158,15 +8154,13 @@ __global__  void ggecoal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_ind
 					old_diver = __shfl( divergence, elected_lane);
 					elected_thread = __shfl(tid, elected_lane);
 					old_depth =  __shfl(depth, elected_lane);
-//					printf("depth : %d, old_depth: %d, tid %d,elected_thread %d  \n",depth, old_depth,tid, elected_thread );
-//					if(elected_lane != 0 )
-//					printf("elected_lane %d elected_thread %d \n", elected_lane, elected_thread);
+
 				}
 				//go to threads that will reach the end, so elected_thread is not active any more
 				bool if_help = false;
 				if(if_end){
-
-
+					atomicAdd (&s, 1);
+					
 					if (depth == el && !if_interrupt) {
 
 						//compute score
@@ -8184,10 +8178,9 @@ __global__  void ggecoal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_ind
 					}
 
 
-					if(notEndingCnt > 0 && s < taskPerBlock){
-					//this control the sample count method.
-					//	atomicAdd (&s, 1);
-					//	atomicAdd (&d, 1);
+					if(notEndingCnt > 0 ){
+//						atomicAdd (&s, 1);
+
 //						if(s < taskPerBlock){
 							if_help = true;
 							// count threads that can be used
@@ -8228,10 +8221,10 @@ __global__  void ggecoal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_ind
 
 
 					depth = depth + 1;
-					
-//					generateFixedsizeTempThreadLessmem( d_offset_index, d_offsets, d_edge_index, d_edges,d_order, depth,  d_bn , d_bn_count,  d_idx_count, d_embedding,d_idx_embedding, query_vertices_num, max_candidates_num,d_temp,d_intersection,tid , fixednum);
+
+					generateFixedsizeTempThreadLessmem( d_offset_index, d_offsets, d_edge_index, d_edges,d_order, depth,  d_bn , d_bn_count,  d_idx_count, d_embedding,d_idx_embedding, query_vertices_num, max_candidates_num,d_temp,d_intersection,tid , fixednum);
 //					generateFixedsizeTempThreadLessmemV4( d_offset_index, d_offsets, d_edge_index, d_edges,d_order, depth,  d_bn , d_bn_count,  d_idx_count, d_embedding,d_idx_embedding, query_vertices_num, max_candidates_num,d_temp,d_intersection,tid , fixednum);
-					generateFixedsizeTemp( d_offset_index, d_offsets, d_edge_index, d_edges,d_order, depth,  d_bn , d_bn_count,  d_idx_count, d_embedding,d_idx_embedding, query_vertices_num, max_candidates_num,d_temp,d_intersection,tid , fixednum);
+
 
 					valid_candidate_size = d_idx_count[ offset_qn+ depth];
 
@@ -8247,10 +8240,13 @@ __global__  void ggecoal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_ind
 	 typedef cub::BlockReduce<double, threadsPerBlock> BlockReduce;
 	 __shared__ typename BlockReduce::TempStorage temp_storage;
 	 double aggregate = BlockReduce(temp_storage).Sum(thread_score, threadsPerBlock);
+	 
 	 if(threadIdx.x == 0){
 		 atomicAdd (d_score,aggregate );
-//		 atomicAdd (d_denominator,d );
+		 atomicAdd (d_path_count,s );
 	 }
+	 //
+	 //printf("s %d , taskPerBlock %d \n", s ,taskPerBlock );
 }
 
 template < ui threadsPerBlock>

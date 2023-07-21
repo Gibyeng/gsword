@@ -1034,20 +1034,20 @@ size_t LFTJ(const Graph *data_graph, const Graph *query_graph, Edges ***edge_mat
         cur_depth -= 1;
 //        if(cur_depth == 0){
         	// study the basic information
-        	auto pause = std::chrono::high_resolution_clock::now();
-        	auto lasttime = std::chrono::duration_cast<std::chrono::nanoseconds>(pause - lastpause).count();
-        	lastpause = pause;
+        	// auto pause = std::chrono::high_resolution_clock::now();
+        	// auto lasttime = std::chrono::duration_cast<std::chrono::nanoseconds>(pause - lastpause).count();
+        	// lastpause = pause;
         	backtrack_cnt[cur_depth] += 1;
-        	double oft = (double)lasttime/ 1000000;
+        	// double oft = (double)lasttime/ 1000000;
 //        	printf("backtrack: layer is %d, last time is %f ms \n", cur_depth, oft);
         	// larger than 10 mins
-        	if( oft > (double)10*60*1000 || cur_depth < 0){
-        		printf("curent time is %f ms \n", oft);
-        		for (int t = 0; t < 16 ; ++t){
-        			printf("the cnt of layer %d is %lld \n",t, backtrack_cnt[t]);
-        		}
-        		break;
-        	}
+        	// if( oft > (double)10*60*1000 || cur_depth < 0){
+        	// 	printf("curent time is %f ms \n", oft);
+        	// 	for (int t = 0; t < 16 ; ++t){
+        	// 		printf("the cnt of layer %d is %lld \n",t, backtrack_cnt[t]);
+        	// 	}
+        	// 	break;
+        	// }
 //        }
         if (cur_depth < 0)
             break;
@@ -4328,9 +4328,13 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
 //    memset (score , 0 , score_length* sizeof (double));
     score = new double [1];
     score_count = new ui [1];
-    score[0] = 0;;
+    score[0] = 0;
     score_count[0] = 0;
+    ui* path_count = new ui [1];
+    path_count[0] = 0;
 
+
+    auto GPU_alloc_start = std::chrono::high_resolution_clock::now();
     // allocate GPU mmeory;
     ui query_vertices_num = query_graph->getVerticesCount();
     ui data_vertices_num = data_graph->getVerticesCount();
@@ -4361,6 +4365,7 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
 	ui* d_temp_size;
 	ui* d_range;
 	ui* d_intersection;
+	ui* d_path_count;
     // 2d array
 //    ui* d_valid_candidate_idx;
     ui* d_candidates;
@@ -4371,7 +4376,7 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
     ui* d_edge_index;
     ui* d_edges;
     cudaDeviceSynchronize();
-    auto GPU_alloc_start = std::chrono::high_resolution_clock::now();
+
     /*  allocate memory structure for GPU computation*/
     std::cout << "assign GPU memory..." <<std::endl;
     allocateGPU1D( d_bn_count ,bn_count, query_vertices_num* sizeof(ui));
@@ -4385,6 +4390,7 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
 //    allocateGPU1D( d_temp_buffer ,temp_buffer, max_candidates_num * sizeof(ui));
     allocateGPU1D( d_score ,score, 1* sizeof(double));
     allocateGPU1D( d_score_count ,score_count, 1* sizeof(double));
+    allocateGPU1D( d_path_count ,path_count, 1* sizeof(ui));
     allocateGPU1D( d_candidates_count ,candidates_count, query_vertices_num* sizeof(ui));
     GPU_bytes += sizeof(double)*2 +  query_vertices_num* sizeof(ui) ;
 //    size_t valid_candidate_idx_pitch;
@@ -4399,9 +4405,6 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
     // allocate global memory for each thread
     ui threadnum = record.threadnum;
 
-    auto GPU_alloc_end = std::chrono::high_resolution_clock::now();
-    record. cand_alloc_time = std::chrono::duration_cast<std::chrono::nanoseconds>(GPU_alloc_end - GPU_alloc_start).count();
-    std::cout<< "alloc memory: "<< record.cand_alloc_time /1000000000<< std::endl;
 
 	ui numBlocks = (threadnum-1) / blocksize + 1;
 	ui taskPerRound = numBlocks* record. taskPerBlock;
@@ -4415,13 +4418,12 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
     allocateMemoryPerThread(d_idx_embedding ,query_vertices_num * sizeof(ui), threadnum);
     allocateMemoryPerThread(d_range ,query_vertices_num * sizeof(ui), threadnum);
     allocateMemoryPerThread(d_idx_count ,query_vertices_num * sizeof(ui), threadnum);
-    allocateMemoryPerThread(d_intersection ,max_candidates_num * sizeof(ui), threadnum);
+//    allocateMemoryPerThread(d_intersection ,max_candidates_num * sizeof(ui), threadnum);
     allocateMemoryPerThread(d_temp ,query_vertices_num* fixednum * sizeof(ui), threadnum);
+//    allocateMemoryPerThread(d_temp ,query_vertices_num* max_candidates_num * sizeof(ui), threadnum);
     cudaDeviceSynchronize();
     GPU_bytes += (query_vertices_num * sizeof(ui) * 5 + query_vertices_num* fixednum * sizeof(ui)) * threadnum;
     std::cout << "total GPU memory: " << GPU_bytes/ 1024 / 1024 << " M" <<std::endl;
-
-
     cudaDeviceSynchronize();
     // test cuda err after memory is assigned
     auto err = cudaGetLastError();
@@ -4432,13 +4434,12 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
 		std::cout <<"Pass memory assignment test!"<<std::endl;
 	}
 	// compute total bytes allocated.
-	ui* d_test;
-	auto fast_alloc_begin = std::chrono::high_resolution_clock::now();
-    cudaMalloc(&d_test,GPU_bytes);
-    auto fast_alloc_end = std::chrono::high_resolution_clock::now();
-    printf("fast alloc memory: %f s", (double)std::chrono::duration_cast<std::chrono::nanoseconds>(fast_alloc_end - fast_alloc_begin).count()/1000000000 );
-//    cudaFree(&d_test);
+
+
 	// test candidate
+
+    auto GPU_alloc_end = std::chrono::high_resolution_clock::now();
+    record. cand_alloc_time = std::chrono::duration_cast<std::chrono::nanoseconds>(GPU_alloc_end - GPU_alloc_start).count();
 
 //    while (true) {
 //
@@ -4453,9 +4454,11 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
   				ui h_score_count = 0;
   				for (ui k = 0; k< round; ++k){
 					//one thread one path
-  					ggecoal<blocksize><<<numBlocks,blocksize>>>(start_vertex,d_offset_index,d_offsets, d_edge_index, d_edges ,d_order, d_candidates,d_candidates_count, d_bn ,d_bn_count, d_idx_count, d_idx,  d_range,  d_embedding, d_idx_embedding ,d_temp,d_intersection, query_vertices_num, max_candidates_num, threadnum , 0, max_depth - 1,fixednum, d_score, d_score_count,record.taskPerBlock);
-					cudaDeviceSynchronize();
+  					ggecoal<blocksize><<<numBlocks,blocksize>>>(start_vertex,d_offset_index,d_offsets, d_edge_index, d_edges ,d_order, d_candidates,d_candidates_count, d_bn ,d_bn_count, d_idx_count, d_idx,  d_range,  d_embedding, d_idx_embedding ,d_temp,d_intersection, query_vertices_num, max_candidates_num, threadnum , 0, max_depth - 1,fixednum, d_score, d_score_count,record.taskPerBlock, d_path_count);
+//  					Help<blocksize><<<numBlocks,blocksize>>>(start_vertex,d_offset_index,d_offsets, d_edge_index, d_edges ,d_order, d_candidates,d_candidates_count, d_bn ,d_bn_count, d_idx_count, d_idx,  d_range,  d_embedding, d_idx_embedding ,d_temp,d_intersection, query_vertices_num, max_candidates_num, threadnum , 0, max_depth - 1,fixednum, d_score, d_score_count,record.taskPerBlock);
+  					cudaDeviceSynchronize();
 					cudaMemcpy( &aver_score, d_score, sizeof(double), cudaMemcpyDeviceToHost);
+					cudaMemcpy( path_count, d_path_count, sizeof(ui), cudaMemcpyDeviceToHost);
 	//				cudaMemcpy( &h_score_count, d_score_count, sizeof(ui), cudaMemcpyDeviceToHost);
 	//				std::cout << "total_score: " << aver_score << "path count " << h_score_count <<std::endl;
 					auto err = cudaGetLastError();
@@ -4465,12 +4468,82 @@ ui COAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
 						std::cout <<"Sampling end!"<<std::endl;
 					}
   				}
+
 				// beacuse 1st only run once, so * fixednum
   				record.est_path = aver_score/sample_time * fixednum;
   				auto sampling_end = std::chrono::high_resolution_clock::now();
 				record.sampling_time +=  std::chrono::duration_cast<std::chrono::nanoseconds>(sampling_end - sampling_start).count();
+				printf("total collect samples (including inheritance): %u \n", path_count[0]);
+				record.SpeedupbyInheritance = (double) path_count[0]/ sample_time;
           	}
-
+//              ui valid_idx = valid_candidate_idx[cur_depth][idx[cur_depth]];
+//              VertexID u = order[cur_depth];
+//              VertexID v = candidates[u][valid_idx];
+//
+//              if (visited_vertices[v]) {
+//                  idx[cur_depth] += 1;
+//
+//                  continue;
+//              }
+//
+//              embedding[u] = v;
+//              idx_embedding[u] = valid_idx;
+//              visited_vertices[v] = true;
+//              idx[cur_depth] += 1;
+//
+//
+//              if (cur_depth == max_depth - 1) {
+//                  embedding_cnt += 1;
+//                  record. real_workload +=1;
+//                  visited_vertices[v] = false;
+//                  //print a path
+////                  for (int i = 0; i<= cur_depth; i++){
+////                	  std::cout << "i: " << i<<" index: " <<  valid_candidate_idx[i][idx[i] - 1]<< " range: " <<  idx_count[i] <<std::endl;
+////                  }
+//
+//                  if (embedding_cnt >= output_limit_num) {
+//                      goto EXIT;
+//                  }
+//              } else {
+//
+//
+//                  call_count += 1;
+//                  cur_depth += 1;
+//
+//                  idx[cur_depth] = 0;
+//                  generateValidCandidateIndex2(cur_depth, idx_embedding, idx_count, valid_candidate_idx, edge_matrix, bn,
+//                                              bn_count, order, temp_buffer,record.set_intersection_count,record.total_compare);
+//
+//              	if(idx_count[cur_depth] == 0){
+//              		record. real_workload +=1;
+//              	}
+//              }
+//          }
+//
+//
+//          cur_depth -= 1;
+//          if (cur_depth < 0)
+//              break;
+//          else {
+//              VertexID u = order[cur_depth];
+//
+//              visited_vertices[embedding[u]] = false;
+//
+//
+//          }
+//      }
+//
+//
+//
+//      EXIT:
+//  //    releaseBuffer(max_depth, idx, idx_count, embedding, idx_embedding, temp_buffer, valid_candidate_idx,
+//  //                  visited_vertices,
+//  //                  bn, bn_count);
+//
+//  	auto end = std::chrono::high_resolution_clock::now();
+//
+//  	record. enumerating_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end -start).count() - record. sampling_time - record. cand_alloc_time;
+//    return embedding_cnt;
           	return 0;
 }
 
@@ -4667,7 +4740,7 @@ ui COWJ (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matrix
 					}
   				}
 				// beacuse 1st only run once, so * fixednum
-  				printf("denominator: %d \n",denominator[0]);
+                printf("total collect samples (including inheritance): %u \n", denominator[0]);
 //  				record.est_path = aver_score/denominator[0]* fixednum;
   				record.est_path = aver_score/sample_time* fixednum;
   				auto sampling_end = std::chrono::high_resolution_clock::now();
@@ -5011,20 +5084,6 @@ ui HYBAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matri
 					//one thread one path
   					cooperate_t1<blocksize><<<numBlocks,blocksize>>>(start_vertex,d_offset_index,d_offsets, d_edge_index, d_edges ,d_order, d_candidates,d_candidates_count, d_bn ,d_bn_count, d_idx_count, d_idx,  d_range,  d_embedding, d_idx_embedding ,d_temp,d_intersection, query_vertices_num, max_candidates_num, threadnum , 0, max_depth - 1,fixednum, d_score, d_score_count,record.taskPerBlock,d_hardembedding,d_hardness, d_hardlayer,d_hardcount, d_siblingcount,d_res,d_oldest,numberofhardcases);
 
-
-//					auto err = cudaGetLastError();
-//					if (err != cudaSuccess){
-//						std::cout <<"An error ocurrs when sampling!"<<std::endl;
-//					}else{
-//						std::cout <<"Sampling end!"<<std::endl;
-//					}
-//					cudaDeviceSynchronize();
-//					auto GPU_sampling_end = std::chrono::high_resolution_clock::now();
-//					gpu_iter_sample_cost = std::chrono::duration_cast<std::chrono::nanoseconds>(GPU_sampling_end - GPU_sampling_start).count();
-//					gpu_sample_cost  +=  gpu_iter_sample_cost;
-
-//					auto CPU_enumeration_start = std::chrono::high_resolution_clock::now();
-//					double lefttime = gpu_iter_sample_cost;
 					if(record.batchnumber > 1){
 						if(k > 0){
 							std::cout <<"CPU:process "<<  numberofhardcases << " hard cases." << " real save "<< hardcount[0] << "cases"<<std::endl;
@@ -5098,7 +5157,7 @@ ui HYBAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matri
 //				adjust = aver_score- old_sum + new_sum;
 				//record.new_est =  adjust/sample_time * fixednum;
   				record.new_est = new_sum/processed_cnt;
-				printf("processed_cnt is %d, new est: %f \n",processed_cnt, record.new_est);
+				printf("processed #sample is %d, CPU estimate is: %f \n",processed_cnt, record.new_est);
 
   				auto sampling_end = std::chrono::high_resolution_clock::now();
 				//record.sampling_time +=  std::chrono::duration_cast<std::chrono::nanoseconds>(sampling_end - sampling_start).count();
@@ -5109,7 +5168,7 @@ ui HYBAL (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matri
 				for (ui t= 0; t< numberofhardcases; ++t){
 					average_layer+= hardlayer[t];
 				}
-				std::cout<< "average layer is " << average_layer/numberofhardcases << std::endl;
+				// std::cout<< "average layer is " << average_layer/numberofhardcases << std::endl;
 				record.average_layer = average_layer/numberofhardcases;
 
           	}
@@ -5436,7 +5495,7 @@ ui HYBWJ (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matri
 //				adjust = aver_score- old_sum + new_sum;
 				//record.new_est =  adjust/sample_time * fixednum;
   				record.new_est = new_sum/processed_cnt;
-				printf("processed_cnt is %d, new est: %f \n",processed_cnt, record.new_est);
+				printf("processed #samples is %d, CPU estimate is: %f \n",processed_cnt, record.new_est);
 
   				auto sampling_end = std::chrono::high_resolution_clock::now();
 				//record.sampling_time +=  std::chrono::duration_cast<std::chrono::nanoseconds>(sampling_end - sampling_start).count();

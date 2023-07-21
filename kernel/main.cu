@@ -6,10 +6,10 @@
 #include <time.h>
 #include <algorithm>
 #include "Intersection.cu"
-#include "until.cpp"
-#include "graph/graph.cpp"
-#include "matching/matching.cpp"
-#include "matching/BuildTable.cpp"
+#include "../matching/until.cpp"
+#include "../graph/graph.cpp"
+#include "../matching/matching.cpp"
+#include "../matching/BuildTable.cpp"
 
 #define maxListLength 1000
 
@@ -26,12 +26,11 @@ int main (int argc, char * argv[]){
 	double alpha = 0.1;
 	ui fixednum = 1;
 	ui threadnum = sample_time;
-	//编译时常量, cub需要
+	//const value for cub compile
 	constexpr ui BlockSize = 128;
 	constexpr ui WarpSize = 32;
 	std::cout << "block size is "<<  BlockSize <<std::endl;
-	//random seed if necessory
-//	srand((unsigned)time(NULL));
+
 	cudaDeviceSynchronize();
 	bool successrun = true;
 	auto err = cudaGetLastError();

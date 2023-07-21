@@ -5,7 +5,7 @@
 #include <cuda_runtime.h>
 #include "cublas_v2.h"
 #include "kernel.cuh"
-#include "until.cpp"
+#include "../matching/until.cpp"
 #include <vector>
 #include <time.h>
 
