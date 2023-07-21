@@ -26,7 +26,7 @@ int main (int argc, char * argv[]){
 	double alpha = 0.1;
 	ui fixednum = 1;
 	ui threadnum = sample_time;
-	//const value for cub compile
+	// const vaule for cub lib to compile
 	constexpr ui BlockSize = 128;
 	constexpr ui WarpSize = 32;
 	std::cout << "block size is "<<  BlockSize <<std::endl;
@@ -318,7 +318,7 @@ int main (int argc, char * argv[]){
 	}
 
 	std::cout << "End... "<< std::endl;
-	std::cout <<"Enumerate count: "<< embedding_count << std::endl;
+	std::cout <<"Real count(if using enumeration): "<< embedding_count << std::endl;
 	std::cout <<"Est path count: "<< record.est_path<< std::endl;
 	std::cout << "Sampling_cost: " << record.sampling_time/1000000000 << std::endl;
 	std::cout << "Enumerating_cost: " << record.enumerating_time/1000000000 << std::endl;
