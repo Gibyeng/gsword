@@ -95,11 +95,14 @@ e 3 4
 
 Output File Format for GSWORD
 --------
-The configuration information and results are showcased in the console during execution. Additionally, We also output the results into a file named "output.txt" by default. Each query corresponds to one line of the file. To get the Q-error please run enumeration (Method 0) to get the real subgraph count and compare the estimatefromRW with the real count.
+The configuration information and results are showcased in the console during execution. Additionally, We also output the results into a file named "output.txt" by default. Each query corresponds to one line of the file. To get the Q-error please run enumeration (Method 0) to get the real subgraph count and compare the "estimatefromRW" with the real count. "datagraph" and "querygraph" represents the file name of data graph and query graph. 
+"querysize" represents the number of nodes of the query. "numberofsamplesPerkernel", "numberofsamplesperblock", and "numberofsamplesperwarp" represents the number of samples are assigns to kernel, block and warp, respectively. "numberofbatches" represents the batch numbers used in co-processing approaches. "candidateBuildingTime", "samplingcost", and   represents the running time of the candidate building and sampling. "enumerationCount" is the real count from enumeration. "estimatefromRW" is the estimate count from RW estimator.
+At last,"GPUErrorDetection" flag indicates whether the GPU is functioning properly. If there is no GPU error, the flag is 1, otherwise 0. 
+
 ```
-datagraph querygraph querysize numberofsamplesPerkernel numberofsamplesperblock numberofsamplesperwarp numberofbatches(only for coprocessing) candidateBuildingTime samplingcost enumerationCount estimatefromRW GPUErrorDetection
+datagraph querygraph querysize numberofsamplesPerkernel numberofsamplesperblock numberofsamplesperwarp numberofbatches(only for co-processing) candidateBuildingTime samplingcost enumerationCount estimatefromRW GPUErrorDetection
 ```
 
-Datasets and baselines.
+Datasets and Baselines
 --------
-We have updated four of the datasets (dblp, yeast, hprd, wordnet) and their corresponding queries utilized in the paper, and they can now be accessed in the "dataset/dataset.zip". Due to the large space of the rest datasets, we do not upload them to the repo. You can find the two baseline implementations, [gcare] (https://github.com/yspark-dblab/gcare.git) and [nextDoor](https://github.com/plasma-umass/NextDoor), using the provided links.
+We have updated four of the datasets (dblp, yeast, hprd, wordnet) and their corresponding queries utilized in the paper, and they can now be accessed in the "dataset/datasets.zip". Due to the large space of the datasets, we do not upload the rest datasets to the repo. You can find the two baseline implementations, [gcare](https://github.com/yspark-dblab/gcare.git) and [nextDoor](https://github.com/plasma-umass/NextDoor), using the provided links.
