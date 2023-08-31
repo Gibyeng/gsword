@@ -92,3 +92,14 @@ e 1 3
 e 2 4
 e 3 4
 ```
+
+Output File Format for GSWORD
+--------
+The configuration information and results are showcased in the console during execution. Additionally, We also output the results into a file named "output.txt" by default. Each query corresponds to one line of the file. To get the Q-error please run enumeration (Method 0) to get the real subgraph count and compare the estimatefromRW with the real count.
+```
+datagraph querygraph querysize numberofsamplesPerkernel numberofsamplesperblock numberofsamplesperwarp numberofbatches(only for coprocessing) candidateBuildingTime samplingcost enumerationCount estimatefromRW GPUErrorDetection
+```
+
+Datasets and baselines.
+--------
+We have updated four of the datasets (dblp, yeast, hprd, wordnet) and their corresponding queries utilized in the paper, and they can now be accessed in the "dataset/dataset.zip". Due to the large space of the rest datasets, we do not upload them to the repo. You can find the two baseline implementations, [gcare] (https://github.com/yspark-dblab/gcare.git) and [nextDoor](https://github.com/plasma-umass/NextDoor), using the provided links.

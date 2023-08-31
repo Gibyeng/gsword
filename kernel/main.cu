@@ -170,7 +170,8 @@ int main (int argc, char * argv[]){
 	size_t memory_cost_in_bytes = 0;
 	memory_cost_in_bytes = BuildTable::computeMemoryCostInBytes(query_graph, candidates_count, edge_matrix);
 	BuildTable::printTableCardinality(query_graph, edge_matrix);
-
+	std::cout << "-----" << std::endl;
+	auto buildcand_end = std::chrono::high_resolution_clock::now();
 	std::cout << "-----" << std::endl;
 	std::cout << "Generate a matching order..." << std::endl;
 
@@ -236,10 +237,8 @@ int main (int argc, char * argv[]){
 
 	checkQueryPlanCorrectness(query_graph, matching_order, pivots);
 	printSimplifiedQueryPlan(query_graph, matching_order);
-	std::cout << "-----" << std::endl;
-	auto buildcand_end = std::chrono::high_resolution_clock::now();
-	std::cout<<"build candidates time: " << (double)std::chrono::duration_cast<std::chrono::nanoseconds>(buildcand_end - buildcand_start).count() /1000000000<< std::endl;
-	std::cout << "Enumerate..." << std::endl;
+	double cand_build_time = (double)std::chrono::duration_cast<std::chrono::nanoseconds>(buildcand_end - buildcand_start).count();
+	std::cout<<"build candidates time: " << cand_build_time/1000000000<< std::endl;
 	size_t output_limit = std::numeric_limits<size_t>::max();
 
 	size_t embedding_count = 0;
@@ -322,7 +321,7 @@ int main (int argc, char * argv[]){
 	std::cout <<"Est path count: "<< record.est_path<< std::endl;
 	std::cout << "Sampling_cost: " << record.sampling_time/1000000000 << std::endl;
 	std::cout << "Enumerating_cost: " << record.enumerating_time/1000000000 << std::endl;
-	std::cout << "candiate set cost: " << record.cand_alloc_time/1000000000 << std::endl;
+	std::cout << "candiate set cost: " << cand_build_time/1000000000 << std::endl;
 	std::cout <<"call count: "<< call_count << std::endl;
 
 	//write files
@@ -383,16 +382,16 @@ int main (int argc, char * argv[]){
 			qerr = 1/qerr;
 		}
 		// overestimate or underestimate
-		if(embedding_count > record.est_path){
-			out << "-";
-		}else{
-			out << "+";
-		}
+//		if(embedding_count > record.est_path){
+//			out << "-";
+//		}else{
+//			out << "+";
+//		}
 
 //		out << (double)abs((long long)embedding_count -  (long long)record.est_path)/embedding_count<< "\t";
 
-		out << qerr<< "\t";
-		out << record.cand_alloc_time/1000000000 << "\t";
+//		out << qerr<< "\t";
+		out << record.cand_build_time/1000000000 << "\t";
 		// simpling cost_ by_GPU
 		out << record.sampling_time/1000000000 << "\t";
 //		// reorder cost_ by_GPU
@@ -402,15 +401,7 @@ int main (int argc, char * argv[]){
 		// if gpu run successfully
 		out << record.successrun << "\t";
 
-		// 》 64
-		if(method == 19){
-			out << record.arr_range_count[0] << "\t";
-			out << record.arr_range_count[1] << "\t";
-			out << record.arr_range_count[2] << "\t";
-			out << record.arr_range_count[3] << "\t";
-			out << record.arr_range_count[4] << "\t";
-		}
-
+		
 		out << std::endl;
 		out.close();
 	}
@@ -443,11 +434,11 @@ int main (int argc, char * argv[]){
 //				out << record.gpu_sample_cost<<"\t";
 //				out << record.cpu_enumeration_cost<<"\t";
 //				out << record.select_success_ratio_before<<"\t";
-				out << record.select_success_ratio_after<<"\t";
+//				out << record.select_success_ratio_after<<"\t";
 //				out << record.select_stdev_before<<"\t";
 //				out << record.select_stdev_after<<"\t";
-				out << record.average_layer<<"\t";
-
+//				out << record.average_layer<<"\t";
+				out << record.successrun << "\t";
 				out << std::endl;
 				out.close();
 			}
