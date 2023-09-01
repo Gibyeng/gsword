@@ -33,16 +33,18 @@ Running Code in GSWORD
 Running code is done within the build/ directory. 
 Use "./build/gsword -d DataGraph -q QueryGraph -m method -s NumberOfQueryVetice" to estimate the count of QueryGraph in DataGraph.
 
-| Method | code | Description                |
-| ------ | ---- | -------------------------- |
-| LFTJ   | 0    | Exact count by enumeration |
-| WJ     | 1    | GPU WJ                     |
-| AL     | 2    | GPU ALLEY                  |
-| COWJ   | 3    | WJ with inheritance        |
-| COAL   | 4    | AL with inheritance        |
-| RSAL   | 5    | AL with Warp streaming     |
-| HYBWJ  | 6    | WJ with CPU-GPU cooperate  |
-| HYBAL  | 7    | AL with CPU-GPU cooperate  |
+| Method | code | Description                   |
+| ------ | ---- | ----------------------------- |
+| LFTJ   | 0    | Exact count by enumeration    |
+| WJ     | 1    | GPU WJ  (O0)                  |
+| AL     | 2    | GPU ALLEY  (O0)               |
+| COWJ   | 3    | WJ with inheritance (O1)      |
+| COAL   | 4    | AL with inheritance (O1)      |
+| RSAL   | 5    | AL with Warp streaming (O2)   |
+| HYBWJ  | 6    | WJ with CPU-GPU co-processing |
+| HYBAL  | 7    | AL with CPU-GPU co-processing |
+
+Method 0 is a graph enumeration algorithm that generate real count for the query. Method 1 and 2 are the methods with no optimizations. Method 3 and 4 are methods that deployed inheritances optimization (O1). Method 5 is deployed with warp streaming optimization (O2). Method 6 and 7 are our final solution with CPU-GPU co-processing optimations.
 
 We also provide mpre advanced arguments for experienced users. 
 -t NumberOfSamples,  -c NumberOfThreads, -e MatchOrder
@@ -95,14 +97,29 @@ e 3 4
 
 Output File Format for GSWORD
 --------
-The configuration information and results are showcased in the console during execution. Additionally, We also output the results into a file named "output.txt" by default. Each query corresponds to one line of the file. To get the Q-error please run enumeration (Method 0) to get the real subgraph count and compare the "estimatefromRW" with the real count. "datagraph" and "querygraph" represents the file name of data graph and query graph. 
-"querysize" represents the number of nodes of the query. "numberofsamplesPerkernel", "numberofsamplesperblock", and "numberofsamplesperwarp" represents the number of samples are assigns to kernel, block and warp, respectively. "numberofbatches" represents the batch numbers used in co-processing approaches. "candidateBuildingTime", "samplingcost", and   represents the running time of the candidate building and sampling. "enumerationCount" is the real count from enumeration. "estimatefromRW" is the estimate count from RW estimator.
-At last,"GPUErrorDetection" flag indicates whether the GPU is functioning properly. If there is no GPU error, the flag is 1, otherwise 0. 
+The configuration information and results are showcased in the console during execution. Additionally, We also output the results into a file named "output.txt" by default. Each query corresponds to one line of the file. To get the Q-error please run enumeration (Method 0) to get the real subgraph count and compare the "estimatefromRW" with the real count. "GPUErrorDetection" flag indicates whether the GPU is functioning properly. If there is no GPU error, the flag is 1, otherwise 0. 
+
 
 ```
-datagraph querygraph querysize numberofsamplesPerkernel numberofsamplesperblock numberofsamplesperwarp numberofbatches(only for co-processing) candidateBuildingTime samplingcost enumerationCount estimatefromRW GPUErrorDetection
+datagraph querygraph querysize numberofsamplesPerkernel numberofsamplesperblock numberofsamplesperwarp numberofBatches(only for co-processing) candidateBuildingTime samplingCost enumerationCount estimatefromRW GPUErrorDetection
 ```
+
+| OutputTerm               | Description                                     |
+| ------------------------ | ----------------------------------------------- |
+| datagraph/querygraph     | The file number of data graph or query graph    |
+| querysize                | The number of nodes of the query                |
+| numberofsamplesPerkernel | The number of samples are assigns to one kernel |
+| numberofsamplesperblock  | The number of samples are assigns to one block  |
+| numberofsamplesPerwarp   | The number of samples are assigns to one warp   |
+| numberofBatches          | Batch numbers used in co-processing approaches  |
+| candidateBuildingTime    | The cost of building candidate graph            |
+| samplingCost             | The cost of GPU sampling                        |
+| enumerationCount         | The real count of CPU enumeration               |
+| estimatefromRW           | The estimated count of RW estimator             |
+| GPUErrorDetection        | The flag of GPU runtime error                   |
+
+
 
 Datasets and Baselines
 --------
-We have updated four of the datasets (dblp, yeast, hprd, wordnet) and their corresponding queries utilized in the paper, and they can now be accessed in the "dataset/datasets.zip". Due to the large space of the datasets, we do not upload the rest datasets to the repo. You can find the two baseline implementations, [gcare](https://github.com/yspark-dblab/gcare.git) and [nextDoor](https://github.com/plasma-umass/NextDoor), using the provided links.
+We have updated four of the datasets (dblp, yeast, hprd, wordnet) and their corresponding queries utilized in the paper, and they can now be accessed in the "dataset/datasets.zip". Due to the large space of the datasets, we do not upload the rest datasets to the repo. One can find the two baseline implementations, [gcare](https://github.com/yspark-dblab/gcare.git) and [nextDoor](https://github.com/plasma-umass/NextDoor), using the provided links. 

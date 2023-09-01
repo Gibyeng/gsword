@@ -8221,10 +8221,7 @@ __global__  void ggecoal(ui root,ui* d_offset_index,ui* d_offsets,ui* d_edge_ind
 
 
 					depth = depth + 1;
-
-					generateFixedsizeTempThreadLessmem( d_offset_index, d_offsets, d_edge_index, d_edges,d_order, depth,  d_bn , d_bn_count,  d_idx_count, d_embedding,d_idx_embedding, query_vertices_num, max_candidates_num,d_temp,d_intersection,tid , fixednum);
-//					generateFixedsizeTempThreadLessmemV4( d_offset_index, d_offsets, d_edge_index, d_edges,d_order, depth,  d_bn , d_bn_count,  d_idx_count, d_embedding,d_idx_embedding, query_vertices_num, max_candidates_num,d_temp,d_intersection,tid , fixednum);
-
+					generateFixedsizeTemp( d_offset_index, d_offsets, d_edge_index, d_edges,d_order, depth,  d_bn , d_bn_count,  d_idx_count, d_embedding,d_idx_embedding, query_vertices_num, max_candidates_num,d_temp,d_intersection,tid , fixednum);
 
 					valid_candidate_size = d_idx_count[ offset_qn+ depth];
 
@@ -10289,7 +10286,7 @@ __global__  void wanderJoin_hybird(ui root,ui* d_offset_index,ui* d_offsets,ui* 
 						bool if_valid = wanderjoinCheckOneNode ( d_offset_index, d_offsets, d_edge_index, d_edges,d_order, el,  d_bn , d_bn_count,  d_idx_count, d_embedding,d_idx_embedding, query_vertices_num, max_candidates_num,tid , fixednum);
 						//compute score
 						if(!if_valid){
-						printf("111111111111111111\n");
+						
 							break;
 		   				}
 						double maxhardness = 0;

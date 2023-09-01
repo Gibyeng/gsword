@@ -264,6 +264,13 @@ int main (int argc, char * argv[]){
 	                                              matching_order, output_limit, call_count, record);
 			break;
 		}
+		
+        case 1:{
+			//GPU WJ
+			embedding_count = WJ<BlockSize>(data_graph, query_graph, edge_matrix, candidates, candidates_count,
+																				  matching_order, output_limit, call_count, step,record);
+			break;
+		}
 
 
 		case 2: {
@@ -273,13 +280,6 @@ int main (int argc, char * argv[]){
 			break;
 		}
 	
-		case 1:{
-			//GPU WJ
-			embedding_count = WJ<BlockSize>(data_graph, query_graph, edge_matrix, candidates, candidates_count,
-																				  matching_order, output_limit, call_count, step,record);
-			break;
-		}
-
 		
 		case 3:{
 			// GGE wj
@@ -288,14 +288,14 @@ int main (int argc, char * argv[]){
 			break;
 		}
 		case 5:{
-			// GGE balance workload within a warp
+			// 
 			embedding_count = RSAL<BlockSize>(data_graph, query_graph, edge_matrix, candidates, candidates_count,
 																																  matching_order, output_limit, call_count, step,record);
 			break;
 		}
 
 		case 4:{
-			// alley 开合作 无warp内优化
+			// 
 			embedding_count = COAL<BlockSize>(data_graph, query_graph, edge_matrix, candidates, candidates_count,
 																																			  matching_order, output_limit, call_count, step,record);
 			break;
