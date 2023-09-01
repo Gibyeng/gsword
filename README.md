@@ -106,7 +106,7 @@ datagraph querygraph querysize numberofsamplesPerkernel numberofsamplesperblock 
 
 | OutputTerm               | Description                                     |
 | ------------------------ | ----------------------------------------------- |
-| datagraph/querygraph     | The file number of data graph or query graph    |
+| datagraph/querygraph     | The file name of data graph or query graph      |
 | querysize                | The number of nodes of the query                |
 | numberofsamplesPerkernel | The number of samples are assigns to one kernel |
 | numberofsamplesperblock  | The number of samples are assigns to one block  |
