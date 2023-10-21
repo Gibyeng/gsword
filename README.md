@@ -5,9 +5,9 @@ Organization
 --------
 Code for "gSWORD: GPU-accelerated Sampling for Subgraph Counting"
 
-Download
+<!-- Download
 --------
-There is a public tool to download the code from anonymous4open. (https://github.com/ShoufaChen/clone-anonymous4open)
+There is a public tool to download the code from anonymous4open. (https://github.com/ShoufaChen/clone-anonymous4open) -->
 
 Compilation
 --------
