@@ -10368,3 +10368,424 @@ __global__  void wanderJoin_hybird(ui root,ui* d_offset_index,ui* d_offsets,ui* 
 	 }
 	 
 }
+
+
+
+//set intersection without cg.
+/*
+	input: data graph , query graph, ...
+	output: refined candodate list d_intersection
+*/
+__device__ void generateCandidatesForAlleyWithoutCG(ui* d_data_ngr,ui* d_query_ngr, ui* d_data_oft, ui* d_query_oft, ui* d_reverse_index, ui* d_reverse_index_offset, ui* d_bn, ui* d_bn_count,ui depth,ui* d_embedding, ui* d_temp, ui* d_idx_count, ui tid,ui query_vertices_num, ui targetLabel){
+	/*some const numbers*/
+	ui offset_qn = tid* query_vertices_num;
+	// ui offset_cn = tid* max_candidates_num;
+	// ui offset_qmn = query_vertices_num*max_candidates_num*tid;
+	/*get the first candidate set by its label*/
+	ui label_filtered_candidate_start = d_reverse_index_offset[targetLabel];
+	ui label_filtered_candidate_len = d_reverse_index_offset[targetLabel + 1 ] - label_filtered_candidate_start;
+	ui edgesofqueryvertex = d_bn_count[depth];
+
+	ui refine_count = 0;
+	for (int j = 0; j < label_filtered_candidate_len; ++j){
+		bool find = true;
+		ui val = d_reverse_index[label_filtered_candidate_start + j];
+	
+		for (int i = 0; i< edgesofqueryvertex ; ++i){
+			// for each edges in query graph find a corresponding edge in datagraph
+			ui prior_u = d_bn[depth*query_vertices_num + i];
+			
+			ui prior_v = d_embedding[offset_qn + prior_u];
+			// get neighbor of prior_v
+			ui priorv_ngr_idx = d_data_oft[prior_v];
+			ui priorv_ngr_len = d_data_oft[prior_v + 1] - d_data_oft[prior_v];
+			
+			// intersection 
+			find = deviceBinarySearch(d_data_ngr, val,priorv_ngr_idx,priorv_ngr_len + priorv_ngr_idx - 1);
+
+			if(!find ){
+				break;
+			}
+		}
+		// update d_temp and the candidate_len accordingly.
+		if (find == true){
+			// need to randomly select a val with equal likelihood
+			// compute a random number and decide whether to add it into the intersection results
+			float rand_f =  generate_random_numbers (tid);
+			// if p <= 1/(refine_count +1) then replace otherwise not.
+			if(rand_f <= 1/((float)refine_count +1.0)){
+				d_temp[depth+ offset_qn] = val;
+			}
+		
+			refine_count ++;
+		}
+	}
+	d_idx_count[ offset_qn+ depth] = refine_count;
+	// if(tid == 1){
+	// 	printf("refine end %d \n",refine_count );
+	// }
+}
+
+// one thread one sample(path). Kindly mind it does not support "branching". 
+template < ui threadsPerBlock>
+__global__  void gge_alley_nocandidategraph(ui* d_data_ngr,ui* d_query_ngr,ui* d_data_oft, ui* d_query_oft, ui* d_data_label, ui* d_query_label,ui* d_reverse_index, ui* d_reverse_index_offset,ui* d_bn ,ui* d_bn_count,ui* d_order, ui* d_idx_count, ui* d_idx, ui* d_range, ui* d_embedding, ui* d_idx_embedding, ui* d_temp, ui* d_intersection,ui query_vertices_num ,ui max_candidates_num,ui threadnum,ui sl, ui el, ui fixednum, double* d_score,ui* d_score_count, ui taskPerBlock){
+	__shared__ unsigned int s;
+	double thread_score = 0.0;
+	ui tid = blockIdx.x * blockDim.x + threadIdx.x;
+	ui offset_qn = tid* query_vertices_num;
+	ui offset_cn = tid* max_candidates_num;
+	s = 0;
+	/*initializing: identify vertices of data graph sharing the same label with query graph.*/
+	ui depth = sl;
+	ui querynode =  d_order[depth];
+	ui labelofquerynode = d_query_label[querynode];
+	ui label_filtered_candidate_start = d_reverse_index_offset[labelofquerynode];
+	ui label_filtered_candidate_len = d_reverse_index_offset[labelofquerynode + 1 ] - label_filtered_candidate_start;
+	if(label_filtered_candidate_len == 0){
+		/* in most cases it will not going to happen, which means there exists a label in query graph can not find any corresponding vertices in the datagraph*/
+		return;
+	}
+	// if(tid == 1){
+	// 	printf("I am thread 1 !!!!!\n");
+	// 	printf("the candidate len is %d \n", label_filtered_candidate_len );
+	// 	for (int i = 0; i < label_filtered_candidate_len; ++i){
+	// 		printf("cand: %d ", d_reverse_index[label_filtered_candidate_start + i]);
+	// 	}
+	// }
+	// copy global candidate to the local candidate array. Maybe we can move this to the host.
+	// for (int i = 0 ; i < label_filtered_candidate_len; ++i){
+	/*do not store the candidates, instead randomly select a vertex store it in d_temp*/
+	float rand_f = generate_random_numbers (tid);
+	ui rand_i = ceilf(rand_f * label_filtered_candidate_len ) - 1;
+	/*d_temp records the choice of v, index by depth */
+	d_temp [ query_vertices_num* tid  + depth]  =  d_reverse_index[label_filtered_candidate_start+rand_i];
+	
+	// }
+	/*d_idx_count records the range of all possible v, index by depth */
+	d_idx_count[offset_qn+ depth]  = label_filtered_candidate_len;
+	ui valid_candidate_size = label_filtered_candidate_len;
+
+	while(s < taskPerBlock){
+		ui u = d_order[depth];
+		for (int d = sl ; d < el; ++d  ){
+			d_idx[d + offset_qn] = 0;
+		}
+		if (tid < threadnum){
+			atomicAdd (&s, 1);
+			// each thread gets a v.
+			ui v = d_temp [ query_vertices_num* tid  + depth];
+			while (true) {
+				
+				valid_candidate_size = d_idx_count[ offset_qn+ depth];
+			
+				ui min_size = min (valid_candidate_size,fixednum);
+
+				while (d_idx[depth + offset_qn] < min_size){
+					//printf("depth:%d, d_idx %d, min %d \n",  depth, d_idx[depth + offset_qn],min_size);
+					u = d_order[depth];
+					d_range[depth + offset_qn]  = valid_candidate_size;
+
+					// if depth is not beginning depth.
+					if(depth != sl){
+						v = d_temp[query_vertices_num* tid  + depth];
+					}
+					
+					if( v== 100000000){
+						d_idx[ offset_qn+depth] ++;
+	//					atomicAdd (&d_score_count[0], 1);
+						// printf("find invalid v in %d thread\n", tid);
+						continue;
+					}
+
+					if(duplicate_test(d_embedding,v, depth,d_order ,offset_qn)){
+						d_idx[ offset_qn+depth] ++;
+	//					atomicAdd ( &d_score_count[0], 1);
+						// printf("find duplicate in %d threads\n", tid);
+						continue;
+					}
+
+					d_embedding[offset_qn + u] = v;
+					// d_idx_embedding[offset_qn + u] = valid_idx;
+					d_idx[offset_qn + depth] +=1;
+
+
+					if (depth == el) {
+						double score = 1;
+						for (int i =sl ; i <= el; ++i){
+						
+		
+							if(d_range[i + offset_qn] > fixednum){
+								score *= (double)d_range[i + offset_qn]/fixednum;
+
+							}
+						}
+
+						// printf("embedding is %d, %d , %d . %d \n", d_embedding[offset_qn + 0],d_embedding[offset_qn + 1],d_embedding[offset_qn + 2],d_embedding[offset_qn + 3]);
+						// printf("thread score: %f tid %d \n ", score,tid);
+
+//						atomicAdd (d_score, score);
+						thread_score += score;
+
+					}
+
+					if(depth < el){
+						
+						depth = depth + 1;
+						d_idx[offset_qn + depth] = 0;
+						
+						/* the refine stage */
+						generateCandidatesForAlleyWithoutCG(d_data_ngr, d_query_ngr, d_data_oft, d_query_oft, d_reverse_index,d_reverse_index_offset, d_bn, d_bn_count,depth,d_embedding,d_temp,d_idx_count,tid,query_vertices_num,d_query_label[d_order[depth]] );	
+
+						valid_candidate_size = d_idx_count[ offset_qn+ depth];
+
+						min_size  = min (valid_candidate_size,fixednum);
+
+						if(valid_candidate_size == 0){
+							d_idx[ offset_qn+depth - 1] ++;
+	//						atomicAdd (d_score_count, 1);
+						}
+						// printf("next range: %d, go to depth %d \n", valid_candidate_size, depth);
+	//					printf("tid: %d,depth %d ,min_size %d, fixednum %d\n", tid,depth,min_size,fixednum );
+					}
+				}
+				// backtrack
+				depth --;
+				u = d_order[depth];
+				if(depth <= sl ){
+					break ;
+				}
+
+			}
+		}
+	}
+	// block reduce for thread score
+	 typedef cub::BlockReduce<double, threadsPerBlock> BlockReduce;
+	 __shared__ typename BlockReduce::TempStorage temp_storage;
+	 double aggregate = BlockReduce(temp_storage).Sum(thread_score, threadsPerBlock);
+	 if(threadIdx.x == 0){
+		 atomicAdd (d_score,aggregate );
+	 }
+}
+
+
+__device__ void generateCandidatesForWJWithoutCG(ui* d_data_ngr,ui* d_query_ngr, ui* d_data_oft, ui* d_query_oft, ui* d_reverse_index, ui* d_reverse_index_offset, ui* d_bn, ui* d_bn_count,ui depth,ui* d_embedding, ui* d_temp, ui* d_idx_count, ui tid,ui query_vertices_num, ui targetLabel){
+	/*some const numbers*/
+	ui offset_qn = tid* query_vertices_num;
+	// ui offset_cn = tid* max_candidates_num;
+	// ui offset_qmn = query_vertices_num*max_candidates_num*tid;
+	/*get the first candidate set by its label*/
+	ui label_filtered_candidate_start = d_reverse_index_offset[targetLabel];
+	ui label_filtered_candidate_len = d_reverse_index_offset[targetLabel + 1 ] - label_filtered_candidate_start;
+	ui edgesofqueryvertex = d_bn_count[depth];
+	// only check tree-edges.
+	edgesofqueryvertex >= 1?edgesofqueryvertex = 1:0;
+
+	//iterate all elements in the global candidate
+	ui refine_count = 0;
+	for (int j = 0; j < label_filtered_candidate_len; ++j){
+		bool find = true;
+		ui val = d_reverse_index[label_filtered_candidate_start + j];
+	
+		for (int i = 0; i< edgesofqueryvertex ; ++i){
+			// for each edges in query graph find a corresponding edge in datagraph
+			ui prior_u = d_bn[depth*query_vertices_num + i];
+			
+			ui prior_v = d_embedding[offset_qn + prior_u];
+			// get neighbor of prior_v
+			ui priorv_ngr_idx = d_data_oft[prior_v];
+			ui priorv_ngr_len = d_data_oft[prior_v + 1] - d_data_oft[prior_v];
+			
+			// intersection 
+			find = deviceBinarySearch(d_data_ngr, val,priorv_ngr_idx,priorv_ngr_len + priorv_ngr_idx - 1);
+
+			if(!find ){
+				break;
+			}
+		}
+		// update d_temp and the candidate_len accordingly.
+		if (find == true){
+			// need to randomly select a val with equal likelihood
+			// compute a random number and decide whether to add it into the intersection results
+			float rand_f =  generate_random_numbers (tid);
+			// if p <= 1/(refine_count +1) then replace otherwise not.
+			if(rand_f <= 1/((float)refine_count +1.0)){
+				d_temp[depth+ offset_qn] = val;
+			}
+		
+			refine_count ++;
+		}
+	}
+	d_idx_count[ offset_qn+ depth] = refine_count;
+	// if(tid == 1){
+	// 	printf("refine end %d \n",refine_count );
+	// }
+}
+
+__device__ bool wanderjoinCheck(ui* d_data_ngr,ui* d_query_ngr,ui* d_data_oft, ui* d_query_oft, ui* d_order, ui depth, ui* d_bn ,ui* d_bn_count,ui* d_embedding, ui query_vertices_num, ui tid){
+	ui offset_qn = tid* query_vertices_num;
+	for (int d = 1; d<=depth; ++d ){
+		ui u = d_order[d];
+		ui val = d_embedding[offset_qn + u] ;
+		ui neighbor_count = d_bn_count[d];
+		for(int i = 1; i< neighbor_count; ++i){
+			// for each edges in query graph find a corresponding edge in datagraph
+			ui prior_u = d_bn[depth*query_vertices_num + i];
+			ui prior_v = d_embedding[offset_qn + prior_u];
+			// get neighbor of prior_v
+			ui priorv_ngr_idx = d_data_oft[prior_v];
+			ui priorv_ngr_len = d_data_oft[prior_v + 1] - d_data_oft[prior_v];
+			// intersection 
+			auto find = deviceBinarySearch(d_data_ngr, val,priorv_ngr_idx,priorv_ngr_len + priorv_ngr_idx - 1);
+			if(!find ){
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+// one thread one sample(path). Kindly mind it does not support "branching". 
+template < ui threadsPerBlock>
+__global__  void gge_wj_nocandidategraph(ui* d_data_ngr,ui* d_query_ngr,ui* d_data_oft, ui* d_query_oft, ui* d_data_label, ui* d_query_label,ui* d_reverse_index, ui* d_reverse_index_offset,ui* d_bn ,ui* d_bn_count,ui* d_order, ui* d_idx_count, ui* d_idx, ui* d_range, ui* d_embedding, ui* d_idx_embedding, ui* d_temp, ui* d_intersection,ui query_vertices_num ,ui max_candidates_num,ui threadnum,ui sl, ui el, ui fixednum, double* d_score,ui* d_score_count, ui taskPerBlock){
+	__shared__ unsigned int s;
+	double thread_score = 0.0;
+	ui tid = blockIdx.x * blockDim.x + threadIdx.x;
+	ui offset_qn = tid* query_vertices_num;
+	ui offset_cn = tid* max_candidates_num;
+	s = 0;
+	/*initializing: identify vertices of data graph sharing the same label with query graph.*/
+	ui depth = sl;
+	ui querynode =  d_order[depth];
+	ui labelofquerynode = d_query_label[querynode];
+	ui label_filtered_candidate_start = d_reverse_index_offset[labelofquerynode];
+	ui label_filtered_candidate_len = d_reverse_index_offset[labelofquerynode + 1 ] - label_filtered_candidate_start;
+	if(label_filtered_candidate_len == 0){
+		/* in most cases it will not going to happen, which means there exists a label in query graph can not find any corresponding vertices in the datagraph*/
+		return;
+	}
+	// if(tid == 1){
+	// 	printf("I am thread 1 !!!!!\n");
+	// 	printf("the candidate len is %d \n", label_filtered_candidate_len );
+	// 	for (int i = 0; i < label_filtered_candidate_len; ++i){
+	// 		printf("cand: %d ", d_reverse_index[label_filtered_candidate_start + i]);
+	// 	}
+	// }
+	// copy global candidate to the local candidate array. Maybe we can move this to the host.
+	// for (int i = 0 ; i < label_filtered_candidate_len; ++i){
+	/*do not store the candidates, instead randomly select a vertex store it in d_temp*/
+	float rand_f = generate_random_numbers (tid);
+	ui rand_i = ceilf(rand_f * label_filtered_candidate_len ) - 1;
+	/*d_temp records the choice of v, index by depth */
+	d_temp [ query_vertices_num* tid  + depth]  =  d_reverse_index[label_filtered_candidate_start+rand_i];
+	
+	// }
+	/*d_idx_count records the range of all possible v, index by depth */
+	d_idx_count[offset_qn+ depth]  = label_filtered_candidate_len;
+	ui valid_candidate_size = label_filtered_candidate_len;
+
+	while(s < taskPerBlock){
+		ui u = d_order[depth];
+		for (int d = sl ; d < el; ++d  ){
+			d_idx[d + offset_qn] = 0;
+		}
+		if (tid < threadnum){
+			atomicAdd (&s, 1);
+			// each thread gets a v.
+			ui v = d_temp [ query_vertices_num* tid  + depth];
+			while (true) {
+				
+				valid_candidate_size = d_idx_count[ offset_qn+ depth];
+			
+				ui min_size = min (valid_candidate_size,fixednum);
+
+				while (d_idx[depth + offset_qn] < min_size){
+					//printf("depth:%d, d_idx %d, min %d \n",  depth, d_idx[depth + offset_qn],min_size);
+					u = d_order[depth];
+					d_range[depth + offset_qn]  = valid_candidate_size;
+
+					// if depth is not beginning depth.
+					if(depth != sl){
+						v = d_temp[query_vertices_num* tid  + depth];
+					}
+					
+					if( v== 100000000){
+						d_idx[ offset_qn+depth] ++;
+	//					atomicAdd (&d_score_count[0], 1);
+						// printf("find invalid v in %d thread\n", tid);
+						continue;
+					}
+
+					if(duplicate_test(d_embedding,v, depth,d_order ,offset_qn)){
+						d_idx[ offset_qn+depth] ++;
+	//					atomicAdd ( &d_score_count[0], 1);
+						// printf("find duplicate in %d threads\n", tid);
+						continue;
+					}
+
+					d_embedding[offset_qn + u] = v;
+					// d_idx_embedding[offset_qn + u] = valid_idx;
+					d_idx[offset_qn + depth] +=1;
+
+
+					if (depth == el) {
+						// remove paths that are invalid
+						if(!wanderjoinCheck( d_data_ngr, d_query_ngr, d_data_oft,  d_query_oft,  d_order,  depth,  d_bn , d_bn_count,d_embedding , query_vertices_num, tid)){
+							break;
+						}
+
+						double score = 1;
+						for (int i =sl ; i <= el; ++i){
+						
+		
+							if(d_range[i + offset_qn] > fixednum){
+								score *= (double)d_range[i + offset_qn]/fixednum;
+
+							}
+						}
+
+						// printf("embedding is %d, %d , %d . %d \n", d_embedding[offset_qn + 0],d_embedding[offset_qn + 1],d_embedding[offset_qn + 2],d_embedding[offset_qn + 3]);
+						// printf("thread score: %f tid %d \n ", score,tid);
+
+//						atomicAdd (d_score, score);
+						thread_score += score;
+
+					}
+
+					if(depth < el){
+						
+						depth = depth + 1;
+						d_idx[offset_qn + depth] = 0;
+						
+						/* the refine stage */
+						generateCandidatesForWJWithoutCG(d_data_ngr, d_query_ngr, d_data_oft, d_query_oft, d_reverse_index,d_reverse_index_offset, d_bn, d_bn_count,depth,d_embedding,d_temp,d_idx_count,tid,query_vertices_num,d_query_label[d_order[depth]] );	
+
+						valid_candidate_size = d_idx_count[ offset_qn+ depth];
+
+						min_size  = min (valid_candidate_size,fixednum);
+
+						if(valid_candidate_size == 0){
+							d_idx[ offset_qn+depth - 1] ++;
+	//						atomicAdd (d_score_count, 1);
+						}
+						// printf("next range: %d, go to depth %d \n", valid_candidate_size, depth);
+	//					printf("tid: %d,depth %d ,min_size %d, fixednum %d\n", tid,depth,min_size,fixednum );
+					}
+				}
+				// backtrack
+				depth --;
+				u = d_order[depth];
+				if(depth <= sl ){
+					break ;
+				}
+
+			}
+		}
+	}
+	// block reduce for thread score
+	 typedef cub::BlockReduce<double, threadsPerBlock> BlockReduce;
+	 __shared__ typename BlockReduce::TempStorage temp_storage;
+	 double aggregate = BlockReduce(temp_storage).Sum(thread_score, threadsPerBlock);
+	 if(threadIdx.x == 0){
+		 atomicAdd (d_score,aggregate );
+	 }
+}

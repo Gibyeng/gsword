@@ -229,6 +229,10 @@ int main (int argc, char * argv[]){
 		std::cout << "use Spectrum query plan..." << std::endl;
 		generateOrderSpectrum(query_graph, spectrum, order_num);
 	}
+	else if (orderid == 9){
+		std::cout << "use gcare query plan..." << std::endl;
+		generateOrderGcare(data_graph, query_graph,matching_order, pivots);
+	}
 	else {
 		std::cout << "The specified order id " << orderid << "' is not supported." << std::endl;
 	}
@@ -311,6 +315,17 @@ int main (int argc, char * argv[]){
 		// cpu-gpu wanderjoin
 		case 6:{
 			embedding_count = HYBWJ<BlockSize>(data_graph, query_graph, edge_matrix, candidates, candidates_count,
+																								  matching_order, output_limit, call_count, step,record);
+			break;
+		}
+		// sample on the orginal graph rather than candidate graph
+		case 9:{
+					embedding_count = AL_nocand<BlockSize>(data_graph, query_graph, edge_matrix, candidates, candidates_count,
+																								  matching_order, output_limit, call_count, step,record);
+			break;
+		}
+		case 8:{
+					embedding_count = WJ_nocand<BlockSize>(data_graph, query_graph, edge_matrix, candidates, candidates_count,
 																								  matching_order, output_limit, call_count, step,record);
 			break;
 		}

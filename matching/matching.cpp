@@ -5512,3 +5512,679 @@ ui HYBWJ (const Graph *data_graph, const Graph *query_graph, Edges ***edge_matri
           	}
           	return 0;
 }
+
+// evaluate a matching order
+double EvaluateOrder(Graph* data_graph,Graph* query_graph, ui* local_order,ui* pivot, ui* &temp_cand, ui* & temp_emb)
+{
+	double inv_p = 1;
+	ui querysize =  query_graph->getVerticesCount();
+	for (int i =0; i < querysize; ++i){
+		ui u = local_order[i];
+		ui count = 0;
+		computeCandidateWithNLF(data_graph, query_graph, u, count , temp_cand);
+
+		// check pivot
+		int ref_cnt = 0;
+		if(pivot[i] != -1){
+//			std::cout << "refining" <<std::endl;
+			for(int j = 1; j < count; ++j){
+				int pre_piv = pivot[i];
+				int pre_u = temp_emb[pivot[i]];
+//				std::cout <<"pre_piv is "<< pre_piv << " pre_u is " << pre_u <<std::endl;
+				 if( data_graph->checkEdgeExistence(pre_u,temp_cand[j])){
+					 std::swap(temp_cand[j], temp_cand[ref_cnt]);
+					 ref_cnt++;
+
+				 }
+
+			}
+			count = ref_cnt;
+		}
+		if(count == 0){
+			return 0;
+		}
+		// random select a vertices
+		srand(time(NULL));
+		ui v = temp_cand[rand()%count];
+		temp_emb[local_order[i]] = v;
+//		std::cout << i<< "-th, u: " << local_order[i] << " v: "<< v<< std::endl;
+		inv_p *= (double)count;
+		// verification
+		// can not map to the same vertex
+		// for every edge in query graphs find a corresponding edge in datagraph.
+		for (int j = 0; j< i; ++j){
+			if(temp_emb[local_order[j]] == v)
+			{
+				return 0;
+			}
+			if (query_graph->checkEdgeExistence(local_order[i], local_order[j])){
+				if(!data_graph->checkEdgeExistence(temp_emb[local_order[i]], temp_emb[local_order[j]])){
+//					printf("not match \n");
+					return 0;
+				}
+			}
+		}
+	}
+	return inv_p;
+}
+
+
+// generate matching order from gcare
+// try different matching orders then select the best one.
+void generateOrderGcare(Graph* data_graph, Graph* query_graph, ui* &order, ui *&pivot){
+	// generate all possible orders
+	ui walk_size = query_graph -> getVerticesCount();
+	order = new ui [walk_size];
+	pivot = new ui [walk_size];
+	ui candidates_max_num = data_graph->getGraphMaxLabelFrequency();
+	ui* temp_cand = new ui [candidates_max_num];
+	ui* temp_emb = new ui [walk_size];
+	std::vector<ui> local_order (walk_size);
+	int max_success_cnt = 0;
+	double mini_stdev = INT_MAX;
+	// init order
+	for (int i = 0 ; i < walk_size; ++i){
+				local_order[i] = i;
+	}
+	bool init_order = false;
+	// limits the cost of round robin to 600 samples (about 10 mins)
+	const int limitsround = 600;
+	int round = 0;
+	do{
+		//check correctness of query plan
+		if(!checkQueryPlanCorrectnessBool(query_graph, local_order.data())){
+			continue;
+		}
+		if(!init_order){
+			init_order = true;
+			std::cout << "init order as: ";
+			for (int i = 0 ; i < walk_size; ++i){
+							order[i] = local_order[i];
+							std::cout << order [i] << " ";
+			}
+			std::cout << std::endl;
+		}
+		for (int i = 0 ; i < walk_size; ++i){
+			pivot[i] = -1;
+			for (ui j = 0; j < i; ++j) {
+				if (query_graph->checkEdgeExistence(local_order[i], local_order[j])) {
+					pivot[i] = local_order[j];
+					break;
+				}
+			}
+		}
+		// test the performance of the order
+	    double inv_p = 0.0;
+	    int success_cnt = 0;
+	    for (int i =0 ; i<10; ++i){
+	    	inv_p = EvaluateOrder(data_graph, query_graph, &local_order[0], pivot, temp_cand, temp_emb);
+//	    	std::cout <<" est : " <<inv_p <<std::endl;
+	    	if(inv_p != 0) {
+	    		success_cnt++;
+	    	}
+	    }
+		if(success_cnt > max_success_cnt){
+			max_success_cnt  = success_cnt;
+			// copy order
+			for (int i = 0 ; i < walk_size; ++i){
+//				std::cout << "check " << local_order[i] <<std::endl;
+				order[i] = local_order[i];
+			}
+		}
+		// consume samples  while do round robin
+		if( ++round >limitsround  ){
+			break;
+		}
+	//	printf("current round is %d \n", round);
+
+	}
+	while (next_permutation(local_order.begin(),local_order.end()));
+	delete [] temp_cand;
+	delete [] temp_emb;
+	std::cout <<"the best order is: ";
+		for (int i = 0 ; i < walk_size; ++i){
+				std::cout << order[i] << " ";
+		}
+	//build pivot based on best order.
+		for (int i = 0 ; i < walk_size; ++i){
+			pivot[i] = -1;
+			for (ui j = 0; j < i; ++j) {
+				if (query_graph->checkEdgeExistence(order[i],order[j])) {
+					pivot[i] = order[j];
+					break;
+				}
+			}
+		}
+	std::cout <<std::endl;
+
+}
+
+
+
+
+
+// don't transfer candidates to gpu instead transfer the whole graph to gpu.
+template <const ui blocksize>
+ui AL_nocand ( Graph *data_graph,  Graph *query_graph, Edges ***edge_matrix, ui **candidates, ui *candidates_count,
+        ui *order, size_t output_limit_num, size_t &call_count, ui step, timer &record ){
+	//
+//	std::cout << " !!!!!!!!!!!!!!!!!!!!!!!!!!!!  " <<std::endl;
+	record. sampling_time = 0;
+	record. enumerating_time = 0;
+	record. reorder_time = 0;
+	record. est_path = 0;
+	record. est_workload  = 0;
+	record. real_workload = 0;
+	record. set_intersection_count = 0;
+	record. total_compare = 0;
+	record. cand_alloc_time = 0;
+	ui fixednum = record.fixednum;
+	ui It_count = record.inter_count;
+	auto start = std::chrono::high_resolution_clock::now();
+	// Generate bn.
+    ui **bn;
+    ui *bn_count;
+
+    generateBN(query_graph, order, bn, bn_count);
+
+    // Allocate the memory buffer in CPU
+    ui *idx;
+    ui *idx_count;
+    ui *embedding;
+    ui *idx_embedding;
+    ui *temp_buffer;
+    ui **valid_candidate_idx;
+    double* score;
+    ui* score_count;
+    bool *visited_vertices;
+    ui* random_list;
+
+    allocateBuffer(data_graph, query_graph, candidates_count, idx, idx_count, embedding, idx_embedding,
+                   temp_buffer, valid_candidate_idx, visited_vertices);
+
+
+    size_t embedding_cnt = 0;
+    int cur_depth = 0;
+    int max_depth = query_graph->getVerticesCount();
+    VertexID start_vertex = order[0];
+
+    idx[cur_depth] = 0;
+    idx_count[cur_depth] = candidates_count[start_vertex];
+    unsigned long long GPU_bytes = 0;
+
+    for (ui i = 0; i < idx_count[cur_depth]; ++i) {
+        valid_candidate_idx[cur_depth][i] = i;
+    }
+    /* score length is equal to number of threads*/
+//    ui score_length = idx_count[0];
+//    score = new double [score_length];
+//    memset (score , 0 , score_length* sizeof (double));
+    score = new double [1];
+    score_count = new ui [1];
+    score[0] = 0;;
+    score_count[0] = 0;
+
+    // allocate GPU mmeory;
+    ui query_vertices_num = query_graph->getVerticesCount();
+    ui data_vertices_num = data_graph->getVerticesCount();
+    ui max_candidates_num = candidates_count[0];
+	for (ui i = 1; i < query_vertices_num; ++i) {
+		VertexID cur_vertex = i;
+		ui cur_candidate_num = candidates_count[cur_vertex];
+
+		if (cur_candidate_num > max_candidates_num) {
+			max_candidates_num = cur_candidate_num;
+		}
+	}
+	// allocateGPUmemoryforGraphs
+	//datagraph-(data_ngr, data_oft, data_label), querygraph-(query_ngr, query_oft, query_label)
+
+    // 1-d array only read
+    ui* d_bn;
+    ui* d_bn_count;
+
+    ui* d_candidates_count;
+    ui* d_order;
+    // gpu graphs storage.
+    ui* d_data_ngr;
+    ui* d_data_oft;
+    ui* d_data_label;
+    ui* d_query_ngr;
+	ui* d_query_oft;
+	ui* d_query_label;
+	ui* d_reverse_index;
+	ui* d_reverse_index_oft;
+//    ui* d_sampling_visited_vertices;
+    double* d_score;
+    ui* d_score_count;
+    // 1-d array write by thread
+    ui* d_idx;
+	ui* d_idx_count;
+	ui* d_embedding;
+	ui* d_idx_embedding;
+	ui* d_temp;
+	ui* d_temp_size;
+	ui* d_range;
+	ui* d_intersection;
+    // 2d array
+//    ui* d_valid_candidate_idx;
+    ui* d_candidates;
+
+    // 3d array
+    ui* d_offset_index;
+    ui* d_offsets;
+    ui* d_edge_index;
+    ui* d_edges;
+    cudaDeviceSynchronize();
+    auto GPU_alloc_start = std::chrono::high_resolution_clock::now();
+    /*  allocate memory structure for GPU computation*/
+    std::cout << "assign GPU memory..." <<std::endl;
+    allocateGPU1D( d_bn_count ,bn_count, query_vertices_num* sizeof(ui));
+    GPU_bytes += query_vertices_num* sizeof(ui);
+//    allocateGPU1D( d_idx ,idx,query_vertices_num * sizeof(ui));
+//    allocateGPU1D( d_idx_count ,idx_count,query_vertices_num * sizeof(ui));
+//    allocateGPU1D( d_embedding ,embedding,query_vertices_num * sizeof(ui));
+//    allocateGPU1D( d_idx_embedding ,idx_embedding,query_vertices_num * sizeof(ui));
+    allocateGPU1D( d_order, order, query_vertices_num * sizeof(ui));
+    GPU_bytes += query_vertices_num* sizeof(ui);
+//    allocateGPU1D( d_temp_buffer ,temp_buffer, max_candidates_num * sizeof(ui));
+    allocateGPU1D( d_score ,score, 1* sizeof(double));
+    allocateGPU1D( d_score_count ,score_count, 1* sizeof(double));
+    allocateGPU1D( d_candidates_count ,candidates_count, query_vertices_num* sizeof(ui));
+    /*allocate graph deivce memory， if not use candidate graph*/
+    const ui* data_ngr = data_graph->getNeigborListUI();
+    allocateGPU1D( d_data_ngr ,data_ngr, 2*data_graph->getEdgesCount()* sizeof(ui));
+    const ui* query_ngr = query_graph->getNeigborList();
+    allocateGPU1D( d_query_ngr ,query_ngr, 2*query_graph->getEdgesCount()* sizeof(ui));
+    const ui* data_oft = data_graph->getOffsetList();
+    allocateGPU1D( d_data_oft ,data_oft, (data_vertices_num+1)* sizeof(ui));
+    const ui* query_oft = query_graph->getOffsetList();
+    allocateGPU1D( d_query_oft ,query_oft, (query_vertices_num+1)* sizeof(ui));
+    const ui* data_label = data_graph->getLabelList();
+    allocateGPU1D( d_data_label ,data_label, data_vertices_num* sizeof(ui));
+    const ui* query_label = query_graph->getLabelList();
+    allocateGPU1D( d_query_label ,query_label, data_vertices_num* sizeof(ui));
+    const ui* reverse_index = data_graph->getReverseIndexList();
+    allocateGPU1D( d_reverse_index ,reverse_index, data_vertices_num* sizeof(ui));
+    const ui* reverse_index_oft = data_graph->getReverseOffsetList();
+    allocateGPU1D( d_reverse_index_oft ,reverse_index_oft, (data_graph -> getLabelsCount() + 1)* sizeof(ui));
+
+    GPU_bytes += sizeof(double)*2 +  query_vertices_num* sizeof(ui);
+//    size_t valid_candidate_idx_pitch;
+//    size_t candidates_pitch;
+//    allocateGPU2DUI(d_valid_candidate_idx,valid_candidate_idx, query_vertices_num, max_candidates_num,valid_candidate_idx_pitch);
+    allocateGPU2D(d_candidates,candidates,query_vertices_num,max_candidates_num);
+    allocateGPU2D(d_bn,bn,query_vertices_num,query_vertices_num);
+    GPU_bytes += query_vertices_num* query_vertices_num + sizeof(ui) + query_vertices_num* max_candidates_num * sizeof (ui);
+//    allocateGPU2DPitch(d_candidates,candidates,query_vertices_num,query_vertices_num, candidates_pitch);
+    allocateGPUEdges(d_offset_index,d_offsets, d_edge_index, d_edges, edge_matrix, query_vertices_num, candidates_count,GPU_bytes );
+    // test correctness of GPU memory
+    // allocate global memory for each thread
+    ui threadnum = record.threadnum;
+
+    auto GPU_alloc_end = std::chrono::high_resolution_clock::now();
+    record. cand_alloc_time = std::chrono::duration_cast<std::chrono::nanoseconds>(GPU_alloc_end - GPU_alloc_start).count();
+    std::cout<< "alloc memory: "<< record.cand_alloc_time /1000000000<< std::endl;
+
+	ui numBlocks = (threadnum-1) / blocksize + 1;
+	ui taskPerRound = numBlocks* record. taskPerBlock;
+
+	std::cout << "readonly GPU memory: " << GPU_bytes/ 1024 / 1024 << " M" <<std::endl;
+	std::cout << "threadsPerBlock: "<< blocksize << " numBlocks: "<< numBlocks << " total threads: " << blocksize*numBlocks << " max_candidates_num " << max_candidates_num<<std::endl;
+
+	// for each thread we assign its own global memoory.
+    allocateMemoryPerThread(d_idx ,query_vertices_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_embedding ,query_vertices_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_idx_embedding ,query_vertices_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_range ,query_vertices_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_idx_count ,query_vertices_num * sizeof(ui), threadnum);
+//    allocateMemoryPerThread(d_intersection ,max_candidates_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_temp ,query_vertices_num* fixednum * sizeof(ui), threadnum);
+//    allocateMemoryPerThread(d_temp ,query_vertices_num* max_candidates_num * sizeof(ui), threadnum);
+    cudaDeviceSynchronize();
+    GPU_bytes += (query_vertices_num * sizeof(ui) * 5 + query_vertices_num* fixednum * sizeof(ui)) * threadnum;
+    std::cout << "total GPU memory: " << GPU_bytes/ 1024 / 1024 << " M" <<std::endl;
+
+
+    cudaDeviceSynchronize();
+    // test cuda err after memory is assigned
+    auto err = cudaGetLastError();
+	if (err != cudaSuccess){
+		record. successrun = false;
+		std::cout <<"An error ocurrs when allocate memory!"<<std::endl;
+	}else{
+		std::cout <<"Pass memory assignment test!"<<std::endl;
+	}
+	// compute total bytes allocated.
+	ui* d_test;
+	auto fast_alloc_begin = std::chrono::high_resolution_clock::now();
+    cudaMalloc(&d_test,GPU_bytes);
+    auto fast_alloc_end = std::chrono::high_resolution_clock::now();
+    printf("fast alloc memory: %f s", (double)std::chrono::duration_cast<std::chrono::nanoseconds>(fast_alloc_end - fast_alloc_begin).count()/1000000000 );
+
+    // a cpu test
+    ui v = order[1];
+    ui label_v = query_label [v];
+    ui len = reverse_index_oft[label_v + 1 ] - reverse_index_oft[label_v];
+//	printf("the cpu candidate len is %d \n", len );
+//	for (int i  = 0; i < len; ++i){
+//		printf("cpu cand: %d ", reverse_index[reverse_index_oft[label_v]  + i]);
+//	}
+//	printf("\n");
+//	ui edgesofqueryvertex = bn_count[1];
+//	printf("edgesofqueryvertex is %d \n", edgesofqueryvertex);
+//	for (int i = 0; i< edgesofqueryvertex ; ++i){
+//		// for each edges in query graph find a corresponding edge in datagraph
+//		ui prior_u = bn[1][i];
+//		ui prior_v = 2304;
+//		printf("prior_u is %d \n", prior_u);
+//		// get neighbor of prior_v
+//		ui priorv_ngr_idx = data_oft[prior_v];
+//		ui priorv_ngr_len = data_oft[prior_v + 1] - data_oft[prior_v];
+//		printf("from %d to %d ->", data_oft[prior_v],data_oft[prior_v+1]);
+//		// intersection
+//		for (int j = 0; j< priorv_ngr_len ; ++j){
+//			printf(" %d ", data_ngr[j+priorv_ngr_idx]);
+//		}
+//	}
+
+//	printf( "label of q: %d, label of v2304 %d, label of v401 %d \n", query_graph->getVertexLabel(1), data_graph->getVertexLabel(2304), data_graph->getVertexLabel(401));
+//    cudaFree(&d_test);
+	// test candidate
+
+//    while (true) {
+//
+//      	while (idx[cur_depth] < idx_count[cur_depth]) {
+          	// sampling part
+          	if(idx[cur_depth] == 0 && if_sampling(cur_depth, step)) {
+          		auto sampling_start = std::chrono::high_resolution_clock::now();
+  				ui sample_time = record. sample_time;
+  				// record the possibility weight to sample in the current（first） layer
+  				ui round = (sample_time - 1)/ taskPerRound + 1;
+  				double aver_score = 0;
+  				ui h_score_count = 0;
+  				for (ui k = 0; k< round; ++k){
+					//one thread one path
+  					gge_alley_nocandidategraph<blocksize><<<numBlocks,blocksize>>>(d_data_ngr, d_query_ngr,d_data_oft ,d_query_oft, d_data_label,d_query_label, d_reverse_index, d_reverse_index_oft,d_bn, d_bn_count, d_order, d_idx_count, d_idx,  d_range,  d_embedding, d_idx_embedding ,d_temp,d_intersection, query_vertices_num, max_candidates_num, threadnum , 0, max_depth - 1,fixednum, d_score, d_score_count,record.taskPerBlock);
+					cudaDeviceSynchronize();
+					cudaMemcpy( &aver_score, d_score, sizeof(double), cudaMemcpyDeviceToHost);
+	//				cudaMemcpy( &h_score_count, d_score_count, sizeof(ui), cudaMemcpyDeviceToHost);
+	//				std::cout << "total_score: " << aver_score << "path count " << h_score_count <<std::endl;
+					auto err = cudaGetLastError();
+					if (err != cudaSuccess){
+						std::cout <<"An error ocurrs when sampling!"<<std::endl;
+					}else{
+						std::cout <<"Sampling end!"<<std::endl;
+					}
+  				}
+//  				printf("total score is %f \n", aver_score);
+				// beacuse 1st only run once, so * fixednum
+  				record.est_path = std::round(aver_score/sample_time * fixednum);
+  				auto sampling_end = std::chrono::high_resolution_clock::now();
+				record.sampling_time +=  std::chrono::duration_cast<std::chrono::nanoseconds>(sampling_end - sampling_start).count();
+          	}
+
+          	return 0;
+}
+template <const ui blocksize>
+ui WJ_nocand ( Graph *data_graph,  Graph *query_graph, Edges ***edge_matrix, ui **candidates, ui *candidates_count,
+        ui *order, size_t output_limit_num, size_t &call_count, ui step, timer &record ){
+	//
+//	std::cout << " !!!!!!!!!!!!!!!!!!!!!!!!!!!!  " <<std::endl;
+	record. sampling_time = 0;
+	record. enumerating_time = 0;
+	record. reorder_time = 0;
+	record. est_path = 0;
+	record. est_workload  = 0;
+	record. real_workload = 0;
+	record. set_intersection_count = 0;
+	record. total_compare = 0;
+	record. cand_alloc_time = 0;
+	ui fixednum = record.fixednum;
+	ui It_count = record.inter_count;
+	auto start = std::chrono::high_resolution_clock::now();
+	// Generate bn.
+    ui **bn;
+    ui *bn_count;
+
+    generateBN(query_graph, order, bn, bn_count);
+
+    // Allocate the memory buffer in CPU
+    ui *idx;
+    ui *idx_count;
+    ui *embedding;
+    ui *idx_embedding;
+    ui *temp_buffer;
+    ui **valid_candidate_idx;
+    double* score;
+    ui* score_count;
+    bool *visited_vertices;
+    ui* random_list;
+
+    allocateBuffer(data_graph, query_graph, candidates_count, idx, idx_count, embedding, idx_embedding,
+                   temp_buffer, valid_candidate_idx, visited_vertices);
+
+
+    size_t embedding_cnt = 0;
+    int cur_depth = 0;
+    int max_depth = query_graph->getVerticesCount();
+    VertexID start_vertex = order[0];
+
+    idx[cur_depth] = 0;
+    idx_count[cur_depth] = candidates_count[start_vertex];
+    unsigned long long GPU_bytes = 0;
+
+    for (ui i = 0; i < idx_count[cur_depth]; ++i) {
+        valid_candidate_idx[cur_depth][i] = i;
+    }
+    /* score length is equal to number of threads*/
+//    ui score_length = idx_count[0];
+//    score = new double [score_length];
+//    memset (score , 0 , score_length* sizeof (double));
+    score = new double [1];
+    score_count = new ui [1];
+    score[0] = 0;;
+    score_count[0] = 0;
+
+    // allocate GPU mmeory;
+    ui query_vertices_num = query_graph->getVerticesCount();
+    ui data_vertices_num = data_graph->getVerticesCount();
+    ui max_candidates_num = candidates_count[0];
+	for (ui i = 1; i < query_vertices_num; ++i) {
+		VertexID cur_vertex = i;
+		ui cur_candidate_num = candidates_count[cur_vertex];
+
+		if (cur_candidate_num > max_candidates_num) {
+			max_candidates_num = cur_candidate_num;
+		}
+	}
+	// allocateGPUmemoryforGraphs
+	//datagraph-(data_ngr, data_oft, data_label), querygraph-(query_ngr, query_oft, query_label)
+
+    // 1-d array only read
+    ui* d_bn;
+    ui* d_bn_count;
+
+    ui* d_candidates_count;
+    ui* d_order;
+    // gpu graphs storage.
+    ui* d_data_ngr;
+    ui* d_data_oft;
+    ui* d_data_label;
+    ui* d_query_ngr;
+	ui* d_query_oft;
+	ui* d_query_label;
+	ui* d_reverse_index;
+	ui* d_reverse_index_oft;
+//    ui* d_sampling_visited_vertices;
+    double* d_score;
+    ui* d_score_count;
+    // 1-d array write by thread
+    ui* d_idx;
+	ui* d_idx_count;
+	ui* d_embedding;
+	ui* d_idx_embedding;
+	ui* d_temp;
+	ui* d_temp_size;
+	ui* d_range;
+	ui* d_intersection;
+    // 2d array
+//    ui* d_valid_candidate_idx;
+    ui* d_candidates;
+
+    // 3d array
+    ui* d_offset_index;
+    ui* d_offsets;
+    ui* d_edge_index;
+    ui* d_edges;
+    cudaDeviceSynchronize();
+    auto GPU_alloc_start = std::chrono::high_resolution_clock::now();
+    /*  allocate memory structure for GPU computation*/
+    std::cout << "assign GPU memory..." <<std::endl;
+    allocateGPU1D( d_bn_count ,bn_count, query_vertices_num* sizeof(ui));
+    GPU_bytes += query_vertices_num* sizeof(ui);
+//    allocateGPU1D( d_idx ,idx,query_vertices_num * sizeof(ui));
+//    allocateGPU1D( d_idx_count ,idx_count,query_vertices_num * sizeof(ui));
+//    allocateGPU1D( d_embedding ,embedding,query_vertices_num * sizeof(ui));
+//    allocateGPU1D( d_idx_embedding ,idx_embedding,query_vertices_num * sizeof(ui));
+    allocateGPU1D( d_order, order, query_vertices_num * sizeof(ui));
+    GPU_bytes += query_vertices_num* sizeof(ui);
+//    allocateGPU1D( d_temp_buffer ,temp_buffer, max_candidates_num * sizeof(ui));
+    allocateGPU1D( d_score ,score, 1* sizeof(double));
+    allocateGPU1D( d_score_count ,score_count, 1* sizeof(double));
+    allocateGPU1D( d_candidates_count ,candidates_count, query_vertices_num* sizeof(ui));
+    /*allocate graph deivce memory， if not use candidate graph*/
+    const ui* data_ngr = data_graph->getNeigborListUI();
+    allocateGPU1D( d_data_ngr ,data_ngr, 2*data_graph->getEdgesCount()* sizeof(ui));
+    const ui* query_ngr = query_graph->getNeigborList();
+    allocateGPU1D( d_query_ngr ,query_ngr, 2*query_graph->getEdgesCount()* sizeof(ui));
+    const ui* data_oft = data_graph->getOffsetList();
+    allocateGPU1D( d_data_oft ,data_oft, (data_vertices_num+1)* sizeof(ui));
+    const ui* query_oft = query_graph->getOffsetList();
+    allocateGPU1D( d_query_oft ,query_oft, (query_vertices_num+1)* sizeof(ui));
+    const ui* data_label = data_graph->getLabelList();
+    allocateGPU1D( d_data_label ,data_label, data_vertices_num* sizeof(ui));
+    const ui* query_label = query_graph->getLabelList();
+    allocateGPU1D( d_query_label ,query_label, data_vertices_num* sizeof(ui));
+    const ui* reverse_index = data_graph->getReverseIndexList();
+    allocateGPU1D( d_reverse_index ,reverse_index, data_vertices_num* sizeof(ui));
+    const ui* reverse_index_oft = data_graph->getReverseOffsetList();
+    allocateGPU1D( d_reverse_index_oft ,reverse_index_oft, (data_graph -> getLabelsCount() + 1)* sizeof(ui));
+
+    GPU_bytes += sizeof(double)*2 +  query_vertices_num* sizeof(ui);
+//    size_t valid_candidate_idx_pitch;
+//    size_t candidates_pitch;
+//    allocateGPU2DUI(d_valid_candidate_idx,valid_candidate_idx, query_vertices_num, max_candidates_num,valid_candidate_idx_pitch);
+    allocateGPU2D(d_candidates,candidates,query_vertices_num,max_candidates_num);
+    allocateGPU2D(d_bn,bn,query_vertices_num,query_vertices_num);
+    GPU_bytes += query_vertices_num* query_vertices_num + sizeof(ui) + query_vertices_num* max_candidates_num * sizeof (ui);
+//    allocateGPU2DPitch(d_candidates,candidates,query_vertices_num,query_vertices_num, candidates_pitch);
+    allocateGPUEdges(d_offset_index,d_offsets, d_edge_index, d_edges, edge_matrix, query_vertices_num, candidates_count,GPU_bytes );
+    // test correctness of GPU memory
+    // allocate global memory for each thread
+    ui threadnum = record.threadnum;
+
+    auto GPU_alloc_end = std::chrono::high_resolution_clock::now();
+    record. cand_alloc_time = std::chrono::duration_cast<std::chrono::nanoseconds>(GPU_alloc_end - GPU_alloc_start).count();
+    std::cout<< "alloc memory: "<< record.cand_alloc_time /1000000000<< std::endl;
+
+	ui numBlocks = (threadnum-1) / blocksize + 1;
+	ui taskPerRound = numBlocks* record. taskPerBlock;
+
+	std::cout << "readonly GPU memory: " << GPU_bytes/ 1024 / 1024 << " M" <<std::endl;
+	std::cout << "threadsPerBlock: "<< blocksize << " numBlocks: "<< numBlocks << " total threads: " << blocksize*numBlocks << " max_candidates_num " << max_candidates_num<<std::endl;
+
+	// for each thread we assign its own global memoory.
+    allocateMemoryPerThread(d_idx ,query_vertices_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_embedding ,query_vertices_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_idx_embedding ,query_vertices_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_range ,query_vertices_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_idx_count ,query_vertices_num * sizeof(ui), threadnum);
+//    allocateMemoryPerThread(d_intersection ,max_candidates_num * sizeof(ui), threadnum);
+    allocateMemoryPerThread(d_temp ,query_vertices_num* fixednum * sizeof(ui), threadnum);
+//    allocateMemoryPerThread(d_temp ,query_vertices_num* max_candidates_num * sizeof(ui), threadnum);
+    cudaDeviceSynchronize();
+    GPU_bytes += (query_vertices_num * sizeof(ui) * 5 + query_vertices_num* fixednum * sizeof(ui)) * threadnum;
+    std::cout << "total GPU memory: " << GPU_bytes/ 1024 / 1024 << " M" <<std::endl;
+
+
+    cudaDeviceSynchronize();
+    // test cuda err after memory is assigned
+    auto err = cudaGetLastError();
+	if (err != cudaSuccess){
+		record. successrun = false;
+		std::cout <<"An error ocurrs when allocate memory!"<<std::endl;
+	}else{
+		std::cout <<"Pass memory assignment test!"<<std::endl;
+	}
+	// compute total bytes allocated.
+	ui* d_test;
+	auto fast_alloc_begin = std::chrono::high_resolution_clock::now();
+    cudaMalloc(&d_test,GPU_bytes);
+    auto fast_alloc_end = std::chrono::high_resolution_clock::now();
+    printf("fast alloc memory: %f s", (double)std::chrono::duration_cast<std::chrono::nanoseconds>(fast_alloc_end - fast_alloc_begin).count()/1000000000 );
+
+    // a cpu test
+    ui v = order[1];
+    ui label_v = query_label [v];
+    ui len = reverse_index_oft[label_v + 1 ] - reverse_index_oft[label_v];
+//	printf("the cpu candidate len is %d \n", len );
+//	for (int i  = 0; i < len; ++i){
+//		printf("cpu cand: %d ", reverse_index[reverse_index_oft[label_v]  + i]);
+//	}
+//	printf("\n");
+//	ui edgesofqueryvertex = bn_count[1];
+//	printf("edgesofqueryvertex is %d \n", edgesofqueryvertex);
+//	for (int i = 0; i< edgesofqueryvertex ; ++i){
+//		// for each edges in query graph find a corresponding edge in datagraph
+//		ui prior_u = bn[1][i];
+//		ui prior_v = 2304;
+//		printf("prior_u is %d \n", prior_u);
+//		// get neighbor of prior_v
+//		ui priorv_ngr_idx = data_oft[prior_v];
+//		ui priorv_ngr_len = data_oft[prior_v + 1] - data_oft[prior_v];
+//		printf("from %d to %d ->", data_oft[prior_v],data_oft[prior_v+1]);
+//		// intersection
+//		for (int j = 0; j< priorv_ngr_len ; ++j){
+//			printf(" %d ", data_ngr[j+priorv_ngr_idx]);
+//		}
+//	}
+
+//	printf( "label of q: %d, label of v2304 %d, label of v401 %d \n", query_graph->getVertexLabel(1), data_graph->getVertexLabel(2304), data_graph->getVertexLabel(401));
+//    cudaFree(&d_test);
+	// test candidate
+
+//    while (true) {
+//
+//      	while (idx[cur_depth] < idx_count[cur_depth]) {
+          	// sampling part
+          	if(idx[cur_depth] == 0 && if_sampling(cur_depth, step)) {
+          		auto sampling_start = std::chrono::high_resolution_clock::now();
+  				ui sample_time = record. sample_time;
+  				// record the possibility weight to sample in the current（first） layer
+  				ui round = (sample_time - 1)/ taskPerRound + 1;
+  				double aver_score = 0;
+  				ui h_score_count = 0;
+  				for (ui k = 0; k< round; ++k){
+					//one thread one path
+  					gge_wj_nocandidategraph<blocksize><<<numBlocks,blocksize>>>(d_data_ngr, d_query_ngr,d_data_oft ,d_query_oft, d_data_label,d_query_label, d_reverse_index, d_reverse_index_oft,d_bn, d_bn_count, d_order, d_idx_count, d_idx,  d_range,  d_embedding, d_idx_embedding ,d_temp,d_intersection, query_vertices_num, max_candidates_num, threadnum , 0, max_depth - 1,fixednum, d_score, d_score_count,record.taskPerBlock);
+					cudaDeviceSynchronize();
+					cudaMemcpy( &aver_score, d_score, sizeof(double), cudaMemcpyDeviceToHost);
+	//				cudaMemcpy( &h_score_count, d_score_count, sizeof(ui), cudaMemcpyDeviceToHost);
+	//				std::cout << "total_score: " << aver_score << "path count " << h_score_count <<std::endl;
+					auto err = cudaGetLastError();
+					if (err != cudaSuccess){
+						std::cout <<"An error ocurrs when sampling!"<<std::endl;
+					}else{
+						std::cout <<"Sampling end!"<<std::endl;
+					}
+  				}
+//  				printf("total score is %f \n", aver_score);
+				// beacuse 1st only run once, so * fixednum
+  				record.est_path = std::round(aver_score/sample_time * fixednum);
+  				auto sampling_end = std::chrono::high_resolution_clock::now();
+				record.sampling_time +=  std::chrono::duration_cast<std::chrono::nanoseconds>(sampling_end - sampling_start).count();
+          	}
+
+          	return 0;
+}

@@ -33,20 +33,24 @@ Running Code in GSWORD
 Running code is done within the build/ directory. 
 Use "./build/gsword -d DataGraph -q QueryGraph -m method -s NumberOfQueryVetice" to estimate the count of QueryGraph in DataGraph.
 
-| Method | code | Description                   |
-| ------ | ---- | ----------------------------- |
-| LFTJ   | 0    | Exact count by enumeration    |
-| WJ     | 1    | GPU WJ  (O0)                  |
-| AL     | 2    | GPU ALLEY  (O0)               |
-| COWJ   | 3    | WJ with inheritance (O1)      |
-| COAL   | 4    | AL with inheritance (O1)      |
-| RSAL   | 5    | AL with Warp streaming (O2)   |
-| HYBWJ  | 6    | WJ with CPU-GPU co-processing |
-| HYBAL  | 7    | AL with CPU-GPU co-processing |
+| Method    | code | Description                   |
+| --------- | ---- | ----------------------------- |
+| LFTJ      | 0    | Exact count by enumeration    |
+| WJ        | 1    | GPU WJ  (O0)                  |
+| AL        | 2    | GPU ALLEY  (O0)               |
+| COWJ      | 3    | WJ with inheritance (O1)      |
+| COAL      | 4    | AL with inheritance (O1)      |
+| RSAL      | 5    | AL with Warp streaming (O2)   |
+| HYBWJ     | 6    | WJ with CPU-GPU co-processing |
+| HYBAL     | 7    | AL with CPU-GPU co-processing |
+| WJ_nocand | 8    | WJ without candidate graph    |
+| AL_nocand | 9    | AL without candidate graph    |
 
 Method 0 is a graph enumeration algorithm that generate real count for the query. Method 1 and 2 are the methods with no optimizations. Method 3 and 4 are methods that deployed inheritances optimization (O1). Method 5 is deployed with warp streaming optimization (O2). Method 6 and 7 are our final solution with CPU-GPU co-processing optimations.
 
-We also provide mpre advanced arguments for experienced users. 
+Methods 6, 7 are used for the efficiency evaluation in Section 6.2. Methods 1, 2, 3, 4, 6, 7 are used in the evaluation of GPU-Centric Optimizations in Section 6.3. Methods 6, 7 are used in the evaluation of GPU-CPU co-processing in Section 6.5. Methods 8, 9 are used in the evaluation of candidate graph in Appendix.
+
+We also provide more advanced arguments for experienced users. 
 -t NumberOfSamples,  -c NumberOfThreads, -e MatchOrder
 
 | MatchOrder | code | Description                     |
@@ -59,6 +63,7 @@ We also provide mpre advanced arguments for experienced users.
 | CECI       | 5    | the ordering method of CECI     |
 | RI         | 6    | the ordering method of RI       |
 | VF2        | 7    | the ordering method of VF2++    |
+| GCare      | 8    | the ordering method of GCare    |
 
 Examples
 ```
