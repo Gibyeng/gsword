@@ -128,3 +128,8 @@ datagraph querygraph querysize numberofsamplesPerkernel numberofsamplesperblock 
 Datasets and Baselines
 --------
 We have updated four of the datasets (dblp, yeast, hprd, wordnet) and their corresponding queries utilized in the paper, and they can now be accessed in the "dataset/datasets.zip". Due to the large space of the datasets, we do not upload the rest datasets to the repo. However, we will provide Google Drive links for downloading these datasets upon publication. One can find the two baseline implementations, [gcare](https://github.com/yspark-dblab/gcare.git) and [nextDoor](https://github.com/plasma-umass/NextDoor) by clicking the provided links. 
+
+How to cite
+--------
+Please cite our paper, if you use our source code.
+Chang Ye,Yunchen Li, Shixuan Sun and Wentian Guo. 2024. gSWORD: GPU-accelerated Sampling for Subgraph Counting. PACMMOD 2, 1 (2024), 33–59.
